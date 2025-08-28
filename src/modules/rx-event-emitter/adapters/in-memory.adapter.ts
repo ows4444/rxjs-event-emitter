@@ -41,3 +41,6 @@ export class InMemoryPersistenceAdapter implements PersistenceAdapter {
     }
   }
 }
+
+// Export alias for backward compatibility
+export const InMemoryAdapter = InMemoryPersistenceAdapter;
