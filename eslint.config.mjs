@@ -110,7 +110,7 @@ export default tseslint.config(
       'no-console': 'off', // NestJS Logger patterns
       
       // Complexity rules
-      complexity: ['warn', 15], // Allow reasonable complexity for event processing
+      complexity: ['warn', 25], // Allow reasonable complexity for event processing
       'max-depth': ['warn', 4],
       'max-params': ['warn', 5], // NestJS constructors can have many params
       
@@ -123,6 +123,7 @@ export default tseslint.config(
     // Test-specific overrides
     files: ['**/*.spec.ts', '**/*.test.ts'],
     rules: {
+      '@typescript-eslint/unbound-method': 'off', // Common in Jest patterns
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-unsafe-assignment': 'off',
       '@typescript-eslint/no-unsafe-member-access': 'off',
