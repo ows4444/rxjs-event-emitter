@@ -1,0 +1,14 @@
+{
+  "preset": "./jest.config.json",
+  "testRegex": "unit/.*\\.spec\\.ts$",
+  "coverageDirectory": "../coverage/unit",
+  "coverageThreshold": {
+    "global": {
+      "branches": 90,
+      "functions": 95,
+      "lines": 95,
+      "statements": 95
+    }
+  },
+  "testTimeout": 5000
+}

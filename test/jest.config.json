@@ -1,0 +1,17 @@
+{
+  "moduleFileExtensions": ["js", "json", "ts"],
+  "rootDir": ".",
+  "testEnvironment": "node",
+  "transform": {
+    "^.+\\.(t|j)s$": "ts-jest"
+  },
+  "setupFilesAfterEnv": ["<rootDir>/setup.ts"],
+  "coverageReporters": ["text", "lcov", "html", "json-summary"],
+  "detectOpenHandles": true,
+  "forceExit": true,
+  "moduleNameMapper": {
+    "^@src/(.*)$": "<rootDir>/../src/$1",
+    "^@modules/(.*)$": "<rootDir>/../src/modules/$1",
+    "^@test/(.*)$": "<rootDir>/$1"
+  }
+}
