@@ -1,17 +1,23 @@
 {
-  "moduleFileExtensions": ["js", "json", "ts"],
-  "rootDir": ".",
+  "preset": "ts-jest",
   "testEnvironment": "node",
-  "transform": {
-    "^.+\\.(t|j)s$": "ts-jest"
-  },
-  "setupFilesAfterEnv": ["<rootDir>/setup.ts"],
+  "rootDir": "../",
+  "testMatch": ["<rootDir>/test/**/*.spec.ts", "<rootDir>/src/**/*.spec.ts"],
+  "setupFilesAfterEnv": ["<rootDir>/test/setup.ts"],
+  "coverageDirectory": "<rootDir>/coverage",
+  "collectCoverageFrom": [
+    "src/**/*.ts",
+    "!src/**/*.spec.ts",
+    "!src/**/*.interface.ts",
+    "!src/**/index.ts"
+  ],
   "coverageReporters": ["text", "lcov", "html", "json-summary"],
   "detectOpenHandles": true,
   "forceExit": true,
+  "testTimeout": 10000,
   "moduleNameMapper": {
-    "^@src/(.*)$": "<rootDir>/../src/$1",
-    "^@modules/(.*)$": "<rootDir>/../src/modules/$1",
-    "^@test/(.*)$": "<rootDir>/$1"
+    "^@src/(.*)$": "<rootDir>/src/$1",
+    "^@modules/(.*)$": "<rootDir>/src/modules/$1",
+    "^@test/(.*)$": "<rootDir>/test/$1"
   }
 }

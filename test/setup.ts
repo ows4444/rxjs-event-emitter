@@ -1,17 +1,23 @@
 import { config } from 'dotenv';
 
-// Load env for tests
 config({ path: '.env.test' });
 
-// Optional: silence Nest logs during tests
 import { Logger } from '@nestjs/common';
-Logger.overrideLogger(['error', 'warn']);
+Logger.overrideLogger(['error']);
 
-// Global mock timers or spies
 beforeAll(async () => {
-  jest.setTimeout(15000);
+  jest.clearAllMocks();
 });
 
 afterAll(async () => {
   jest.restoreAllMocks();
+  jest.clearAllTimers();
+});
+
+beforeEach(() => {
+  jest.clearAllMocks();
+});
+
+afterEach(() => {
+  jest.clearAllTimers();
 });

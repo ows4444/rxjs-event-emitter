@@ -17,15 +17,18 @@
     "test:unit": "jest --config test/jest-unit.json --runInBand",
     "test:int": "jest --config test/jest-integration.json --runInBand",
     "test:e2e": "jest --config test/jest-e2e.json --runInBand",
-    "test:all": "npm run test:unit && npm run test:int && npm run test:e2e && npm run test:coverage:merge",
-    "test:coverage:merge": "jest-coverage-merge coverage/unit/coverage-final.json coverage/integration/coverage-final.json coverage/e2e/coverage-final.json > coverage/coverage-merged.json && jest-coverage-merge --reporters lcov text html"
+    "test:all": "npm run test:unit && npm run test:int && npm run test:e2e",
+    "test:all:cov": "npm run test:cov:unit && npm run test:cov:int && npm run test:cov:e2e",
+    "test:cov": "jest --config test/jest.config.json --coverage",
+    "test:cov:unit": "jest --config test/jest-unit.json --coverage",
+    "test:cov:int": "jest --config test/jest-integration.json --coverage", 
+    "test:cov:e2e": "jest --config test/jest-e2e.json --coverage"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
     "@nestjs/core": "^11.0.1",
     "@nestjs/platform-express": "^11.0.1",
     "dotenv": "^17.2.1",
-    "jest-coverage-merge": "^0.0.1-security",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "uuid": "^11.1.0"
