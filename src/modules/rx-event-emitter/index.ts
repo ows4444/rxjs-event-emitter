@@ -30,6 +30,9 @@ export { CircuitBreakerState, PriorityValidationError } from './event-emitter.in
 // ===== ADAPTER EXPORTS =====
 export { InMemoryPersistenceAdapter } from './adapters/in-memory.adapter';
 
+// ===== SERVICE EXPORTS =====
+export { HandlerPoolService, MetricsService, HandlerDiscoveryService } from './services';
+
 // =============================================================================
 // INTERNAL/ADVANCED API - USE WITH CAUTION
 // =============================================================================

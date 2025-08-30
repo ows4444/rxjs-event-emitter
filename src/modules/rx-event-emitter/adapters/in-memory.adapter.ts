@@ -18,6 +18,10 @@ export class InMemoryPersistenceAdapter implements PersistenceAdapter {
       .map((e) => ({ metadata: e.metadata, payload: e.payload }));
   }
 
+  loadAll(): Event[] {
+    return Array.from(this.events.values()).map((e) => ({ metadata: e.metadata, payload: e.payload }));
+  }
+
   markProcessed(id: string): void {
     const event = this.events.get(id);
     if (event) {

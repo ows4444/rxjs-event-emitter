@@ -4,6 +4,9 @@ import { EventEmitterService } from './event-emitter.service';
 import { EventPersistenceService } from './event-persistence.service';
 import { DeadLetterQueueService } from './dead-letter-queue.service';
 import { DependencyAnalyzerService } from './dependency-analyzer.service';
+import { HandlerPoolService } from './services/handler-pool.service';
+import { MetricsService } from './services/metrics.service';
+import { HandlerDiscoveryService } from './services/handler-discovery.service';
 import { EVENT_EMITTER_OPTIONS, EventEmitterOptions } from './event-emitter.interfaces';
 
 @Global()
@@ -19,6 +22,9 @@ export class EventEmitterModule implements OnModuleInit, OnModuleDestroy {
         useValue: options || {},
       },
       DependencyAnalyzerService,
+      HandlerPoolService,
+      MetricsService,
+      HandlerDiscoveryService,
       EventEmitterService,
       EventPersistenceService,
       DeadLetterQueueService,
@@ -61,13 +67,13 @@ export class EventEmitterModule implements OnModuleInit, OnModuleDestroy {
         if (strictMode) {
           const errorMessage =
             result.circularDependencies.length > 0
-              ? `Circular dependencies detected: ${result.circularDependencies.map((cd) => cd.description).join('; ')}`
-              : `Dependency validation failed: ${result.errors.join('; ')}`;
+              ? `Circular dependencies detected: ${result.circularDependencies.map((cd) => cd.cycle.join(' → ')).join('; ')}`
+              : `Dependency validation failed: ${result.errors.map((e) => e.message).join('; ')}`;
 
           throw new Error(`EventEmitterModule configuration invalid: ${errorMessage}`);
         } else {
           logger.warn('Dependency validation failed but continuing in non-strict mode');
-          logger.warn(`Errors: ${result.errors.join('; ')}`);
+          logger.warn(`Errors: ${result.errors.map((e) => e.message).join('; ')}`);
         }
       } else {
         logger.log('✅ Dependency validation passed - no circular dependencies detected');
