@@ -1,59 +1,74 @@
+/**
+ * @fileoverview Handler Pool Service - Modern pool management for handler isolation
+ * Provides concurrent execution control and resource isolation for event handlers
+ */
+
 import { Injectable, Logger } from '@nestjs/common';
-import { Event, HandlerOptions } from '../event-emitter.interfaces';
+import { Observable, Subject, BehaviorSubject } from 'rxjs';
+import { Event, RegisteredHandler, HandlerPool, HandlerIsolationMetrics, CircuitBreakerState, IsolationStrategy, EventEmitterOptions } from '../interfaces';
 
-interface RegisteredHandler {
-  eventName: string;
-  handler: (...args: unknown[]) => unknown;
-  instance: unknown;
-  options: HandlerOptions;
-  handlerId: string;
-}
-
-interface HandlerPool {
-  isolationContext: string;
-  concurrencyLimit: number;
-  activeExecutions: number;
-  totalExecutions: number;
-  failedExecutions: number;
-  averageExecutionTime: number;
-  lastExecutionTime?: number;
-  pendingQueue: {
-    handler: RegisteredHandler;
-    event: Event;
-    enqueuedAt: number;
-    resolve: (value: void) => void;
-    reject: (error: Error) => void;
-  }[];
-  maxQueueSize: number;
-  droppedTasks: number;
-  queueTimeoutMs: number;
-  circuitBreakerState: 'CLOSED' | 'OPEN' | 'HALF_OPEN';
-  circuitBreakerFailures: number;
-  circuitBreakerLastFailure?: number;
-  isolationStrategy: 'per-handler' | 'per-event-type' | 'shared';
-}
-
-interface HandlerIsolationMetrics {
-  totalPools: number;
-  activePools: number;
-  totalActiveExecutions: number;
-  totalQueuedTasks: number;
-  totalDroppedTasks: number;
-  averagePoolUtilization: number;
-  circuitBreakerStates: Record<string, string>;
-}
-
+/**
+ * Modern handler pool service for managing concurrent execution and isolation
+ */
 @Injectable()
 export class HandlerPoolService {
   private readonly logger = new Logger(HandlerPoolService.name);
-  private readonly handlerPools = new Map<string, HandlerPool>();
 
-  createPool(
-    isolationContext: string,
-    concurrencyLimit: number = 5,
-    maxQueueSize: number = 100,
-    isolationStrategy: 'per-handler' | 'per-event-type' | 'shared' = 'per-handler',
-  ): HandlerPool {
+  /** Pool storage by isolation context */
+  private readonly pools = new Map<string, HandlerPool>();
+
+  /** Pool metrics observable */
+  private readonly metricsSubject = new BehaviorSubject<HandlerIsolationMetrics>({
+    totalPools: 0,
+    activePools: 0,
+    totalActiveExecutions: 0,
+    totalQueuedTasks: 0,
+    totalDroppedTasks: 0,
+    averagePoolUtilization: 0,
+    circuitBreakerStates: {},
+    poolMetrics: new Map(),
+    resourceUsage: {
+      memoryUsage: 0,
+      cpuUsage: 0,
+      activeThreads: 0,
+      availableResources: {
+        memory: 0,
+        cpu: 0,
+        threads: 0,
+      },
+      pressure: {
+        memory: 'low',
+        cpu: 'low',
+        threads: 'low',
+      },
+    },
+    isolation: {
+      interferenceScore: 0,
+      faultContainment: 1,
+      sharingEfficiency: 0.8,
+    },
+  });
+
+  constructor(private readonly options: EventEmitterOptions) {}
+
+  /**
+   * Get or create a handler pool for the given isolation context
+   */
+  getOrCreatePool(isolationContext: string, concurrencyLimit?: number, maxQueueSize?: number, isolationStrategy?: IsolationStrategy): HandlerPool {
+    let pool = this.pools.get(isolationContext);
+
+    if (!pool) {
+      pool = this.createPool(isolationContext, concurrencyLimit, maxQueueSize, isolationStrategy);
+      this.pools.set(isolationContext, pool);
+    }
+
+    return pool;
+  }
+
+  /**
+   * Create a new handler pool with modern configuration
+   */
+  private createPool(isolationContext: string, concurrencyLimit = 10, maxQueueSize = 100, isolationStrategy = IsolationStrategy.PER_HANDLER): HandlerPool {
     const pool: HandlerPool = {
       isolationContext,
       concurrencyLimit,
@@ -61,202 +76,434 @@ export class HandlerPoolService {
       totalExecutions: 0,
       failedExecutions: 0,
       averageExecutionTime: 0,
+      lastExecutionTime: undefined,
       pendingQueue: [],
       maxQueueSize,
       droppedTasks: 0,
-      queueTimeoutMs: 30000,
-      circuitBreakerState: 'CLOSED',
+      queueTimeout: this.options.handlerExecution?.queueTimeout || 30000,
+      circuitBreakerState: CircuitBreakerState.CLOSED,
       circuitBreakerFailures: 0,
+      circuitBreakerLastFailure: undefined,
       isolationStrategy,
     };
 
-    this.handlerPools.set(isolationContext, pool);
-    this.logger.debug(`Created handler pool: ${isolationContext}`);
+    this.logger.debug(`Created handler pool: ${isolationContext} with strategy: ${isolationStrategy}`);
+    this.updateMetrics();
+
     return pool;
   }
 
-  getPool(isolationContext: string): HandlerPool | undefined {
-    return this.handlerPools.get(isolationContext);
-  }
-
+  /**
+   * Execute a handler in the appropriate pool with isolation
+   */
   async executeInPool(isolationContext: string, handler: RegisteredHandler, event: Event): Promise<void> {
-    let pool = this.getPool(isolationContext);
-    if (!pool) {
-      pool = this.createPool(isolationContext);
+    const pool = this.getOrCreatePool(isolationContext, handler.options.maxConcurrency, handler.options.maxQueueSize);
+
+    // Check circuit breaker
+    if (this.isCircuitBreakerOpen(pool)) {
+      throw new Error(`Circuit breaker OPEN for pool: ${isolationContext}`);
     }
 
-    // Check circuit breaker state
-    if (pool.circuitBreakerState === 'OPEN') {
-      const timeSinceLastFailure = Date.now() - (pool.circuitBreakerLastFailure || 0);
-      if (timeSinceLastFailure < 60000) {
-        // 1 minute timeout
-        throw new Error(`Circuit breaker is OPEN for ${isolationContext}`);
-      } else {
-        pool.circuitBreakerState = 'HALF_OPEN';
-      }
-    }
-
-    // Check concurrency limits
+    // Try to acquire execution slot
     if (pool.activeExecutions >= pool.concurrencyLimit) {
-      if (pool.pendingQueue.length >= pool.maxQueueSize) {
-        pool.droppedTasks++;
-        throw new Error(`Handler pool queue full for ${isolationContext}`);
-      }
-
-      // Queue the execution
-      return new Promise<void>((resolve, reject) => {
-        pool.pendingQueue.push({
-          handler,
-          event,
-          enqueuedAt: Date.now(),
-          resolve,
-          reject,
-        });
-      });
+      return this.queueExecution(pool, handler, event);
     }
 
-    // Execute immediately
     return this.executeHandler(pool, handler, event);
   }
 
+  /**
+   * Check if circuit breaker is open for the pool
+   */
+  private isCircuitBreakerOpen(pool: HandlerPool): boolean {
+    if (pool.circuitBreakerState !== CircuitBreakerState.OPEN) {
+      return false;
+    }
+
+    const timeout = this.options.errorRecovery?.circuitBreakerTimeout || 60000;
+    const timeSinceFailure = Date.now() - (pool.circuitBreakerLastFailure || 0);
+
+    if (timeSinceFailure >= timeout) {
+      // Transition to half-open
+      pool.circuitBreakerState = CircuitBreakerState.HALF_OPEN;
+      this.logger.debug(`Circuit breaker transitioning to HALF_OPEN for pool: ${pool.isolationContext}`);
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * Queue handler execution when pool is at capacity
+   */
+  private async queueExecution(pool: HandlerPool, handler: RegisteredHandler, event: Event): Promise<void> {
+    if (pool.pendingQueue.length >= pool.maxQueueSize) {
+      pool.droppedTasks++;
+      this.updateMetrics();
+      throw new Error(`Pool queue full for: ${pool.isolationContext}`);
+    }
+
+    return new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        // Remove from queue on timeout
+        const index = pool.pendingQueue.findIndex((item) => item.resolve === resolve);
+        if (index >= 0) {
+          pool.pendingQueue.splice(index, 1);
+        }
+        reject(new Error(`Queue timeout after ${pool.queueTimeout}ms`));
+      }, pool.queueTimeout);
+
+      pool.pendingQueue.push({
+        handler,
+        event,
+        enqueuedAt: Date.now(),
+        resolve: (value) => {
+          clearTimeout(timeout);
+          resolve(value);
+        },
+        reject: (error) => {
+          clearTimeout(timeout);
+          reject(error);
+        },
+      });
+    });
+  }
+
+  /**
+   * Execute handler with pool tracking and metrics
+   */
   private async executeHandler(pool: HandlerPool, handler: RegisteredHandler, event: Event): Promise<void> {
     const startTime = Date.now();
     pool.activeExecutions++;
     pool.totalExecutions++;
 
     try {
-      await handler.handler.call(handler.instance, event);
+      // Execute the handler
+      const result = handler.handler.call(handler.instance, event);
 
-      // Update metrics
+      // Handle async results
+      if (result && typeof result.then === 'function') {
+        await result;
+      }
+
+      // Update success metrics
       const executionTime = Date.now() - startTime;
-      pool.averageExecutionTime = (pool.averageExecutionTime + executionTime) / 2;
-      pool.lastExecutionTime = Date.now();
+      this.updateExecutionMetrics(pool, executionTime, true);
 
-      // Reset circuit breaker on success
-      if (pool.circuitBreakerState === 'HALF_OPEN') {
-        pool.circuitBreakerState = 'CLOSED';
+      // Reset circuit breaker on successful execution
+      if (pool.circuitBreakerState === CircuitBreakerState.HALF_OPEN) {
+        pool.circuitBreakerState = CircuitBreakerState.CLOSED;
         pool.circuitBreakerFailures = 0;
+        this.logger.debug(`Circuit breaker CLOSED for pool: ${pool.isolationContext}`);
       }
-
-      this.logger.debug(`Handler executed successfully in ${executionTime}ms for ${pool.isolationContext}`);
     } catch (error) {
-      pool.failedExecutions++;
-      pool.circuitBreakerFailures++;
+      const executionTime = Date.now() - startTime;
+      this.updateExecutionMetrics(pool, executionTime, false);
 
-      // Circuit breaker logic
-      if (pool.circuitBreakerFailures >= 5) {
-        pool.circuitBreakerState = 'OPEN';
-        pool.circuitBreakerLastFailure = Date.now();
-      }
+      // Update circuit breaker on failure
+      this.updateCircuitBreaker(pool);
 
-      this.logger.error(`Handler execution failed in pool ${pool.isolationContext}:`, error);
       throw error;
     } finally {
       pool.activeExecutions--;
       this.processQueue(pool);
+      this.updateMetrics();
     }
   }
 
-  private processQueue(pool: HandlerPool): void {
-    if (pool.pendingQueue.length > 0 && pool.activeExecutions < pool.concurrencyLimit) {
-      const queuedExecution = pool.pendingQueue.shift();
+  /**
+   * Update execution metrics for the pool
+   */
+  private updateExecutionMetrics(pool: HandlerPool, executionTime: number, success: boolean): void {
+    // Update average execution time using exponential moving average
+    const alpha = 0.1; // Smoothing factor
+    pool.averageExecutionTime = pool.averageExecutionTime * (1 - alpha) + executionTime * alpha;
+    pool.lastExecutionTime = Date.now();
 
-      // Check for expired queue items
-      const queueTime = Date.now() - queuedExecution.enqueuedAt;
-      if (queueTime > pool.queueTimeoutMs) {
-        queuedExecution.reject(new Error(`Queue timeout after ${queueTime}ms`));
-        this.processQueue(pool); // Try next item
-        return;
+    if (!success) {
+      pool.failedExecutions++;
+    }
+  }
+
+  /**
+   * Update circuit breaker state on failure
+   */
+  private updateCircuitBreaker(pool: HandlerPool): void {
+    pool.circuitBreakerFailures++;
+
+    const threshold = this.options.errorRecovery?.circuitBreakerThreshold || 5;
+
+    if (pool.circuitBreakerFailures >= threshold) {
+      pool.circuitBreakerState = CircuitBreakerState.OPEN;
+      pool.circuitBreakerLastFailure = Date.now();
+      this.logger.warn(`Circuit breaker OPEN for pool: ${pool.isolationContext} after ${pool.circuitBreakerFailures} failures`);
+    }
+  }
+
+  /**
+   * Process queued executions when slots become available
+   */
+  private processQueue(pool: HandlerPool): void {
+    while (pool.pendingQueue.length > 0 && pool.activeExecutions < pool.concurrencyLimit) {
+      const queuedItem = pool.pendingQueue.shift()!;
+
+      // Check if item has expired
+      const queueTime = Date.now() - queuedItem.enqueuedAt;
+      if (queueTime > pool.queueTimeout) {
+        queuedItem.reject(new Error(`Queue timeout after ${queueTime}ms`));
+        continue;
       }
 
-      this.executeHandler(pool, queuedExecution.handler, queuedExecution.event).then(queuedExecution.resolve).catch(queuedExecution.reject);
+      // Execute the queued item
+      this.executeHandler(pool, queuedItem.handler, queuedItem.event)
+        .then(() => queuedItem.resolve())
+        .catch((error) => queuedItem.reject(error));
     }
   }
 
-  getHandlerIsolationMetrics(): HandlerIsolationMetrics {
-    const pools = Array.from(this.handlerPools.values());
+  /**
+   * Get pool information by isolation context
+   */
+  getPoolInfo(isolationContext: string): HandlerPool | undefined {
+    return this.pools.get(isolationContext);
+  }
+
+  /**
+   * Get all pools
+   */
+  getAllPools(): ReadonlyMap<string, HandlerPool> {
+    return new Map(this.pools);
+  }
+
+  /**
+   * Get handler isolation metrics observable
+   */
+  getMetrics(): Observable<HandlerIsolationMetrics> {
+    return this.metricsSubject.asObservable();
+  }
+
+  /**
+   * Get current metrics snapshot
+   */
+  getCurrentMetrics(): HandlerIsolationMetrics {
+    return this.metricsSubject.value;
+  }
+
+  /**
+   * Update aggregated metrics
+   */
+  private updateMetrics(): void {
+    const pools = Array.from(this.pools.values());
     const totalActiveExecutions = pools.reduce((sum, pool) => sum + pool.activeExecutions, 0);
     const totalQueuedTasks = pools.reduce((sum, pool) => sum + pool.pendingQueue.length, 0);
     const totalDroppedTasks = pools.reduce((sum, pool) => sum + pool.droppedTasks, 0);
 
+    const activePools = pools.filter((pool) => pool.activeExecutions > 0).length;
     const averageUtilization = pools.length > 0 ? pools.reduce((sum, pool) => sum + pool.activeExecutions / pool.concurrencyLimit, 0) / pools.length : 0;
 
+    // Create circuit breaker states map
     const circuitBreakerStates: Record<string, string> = {};
-    for (const [context, pool] of this.handlerPools.entries()) {
+    const poolMetrics = new Map<string, any>();
+
+    for (const [context, pool] of this.pools) {
       circuitBreakerStates[context] = pool.circuitBreakerState;
+
+      poolMetrics.set(context, {
+        utilization: pool.activeExecutions / pool.concurrencyLimit,
+        throughput: this.calculateThroughput(pool),
+        errorRate: pool.totalExecutions > 0 ? (pool.failedExecutions / pool.totalExecutions) * 100 : 0,
+        averageWaitTime: pool.averageExecutionTime,
+        queueDepth: pool.pendingQueue.length,
+        healthScore: this.calculateHealthScore(pool),
+        efficiency: this.calculateEfficiency(pool),
+      });
     }
 
-    return {
-      totalPools: this.handlerPools.size,
-      activePools: pools.filter((pool) => pool.activeExecutions > 0).length,
+    const metrics: HandlerIsolationMetrics = {
+      totalPools: this.pools.size,
+      activePools,
       totalActiveExecutions,
       totalQueuedTasks,
       totalDroppedTasks,
       averagePoolUtilization: averageUtilization,
       circuitBreakerStates,
+      poolMetrics,
+      resourceUsage: {
+        memoryUsage: this.getMemoryUsage(),
+        cpuUsage: this.getCpuUsage(),
+        activeThreads: totalActiveExecutions,
+        availableResources: {
+          memory: this.getAvailableMemory(),
+          cpu: this.getAvailableCpu(),
+          threads: this.getAvailableThreads(),
+        },
+        pressure: {
+          memory: this.getMemoryPressure(),
+          cpu: this.getCpuPressure(),
+          threads: this.getThreadPressure(totalActiveExecutions),
+        },
+      },
+      isolation: {
+        interferenceScore: this.calculateInterferenceScore(),
+        faultContainment: this.calculateFaultContainment(),
+        sharingEfficiency: this.calculateSharingEfficiency(),
+      },
     };
+
+    this.metricsSubject.next(metrics);
   }
 
-  getHandlerPoolMetrics(): Record<string, unknown> {
-    const metrics: Record<string, unknown> = {};
-
-    for (const [context, pool] of this.handlerPools.entries()) {
-      metrics[`pool_${context}`] = {
-        activeExecutions: pool.activeExecutions,
-        totalExecutions: pool.totalExecutions,
-        failedExecutions: pool.failedExecutions,
-        averageExecutionTime: pool.averageExecutionTime,
-        queueLength: pool.pendingQueue.length,
-        droppedTasks: pool.droppedTasks,
-        circuitBreakerState: pool.circuitBreakerState,
-        utilization: pool.activeExecutions / pool.concurrencyLimit,
-      };
+  /**
+   * Calculate throughput for a pool (events per second)
+   */
+  private calculateThroughput(pool: HandlerPool): number {
+    if (!pool.lastExecutionTime || pool.totalExecutions === 0) {
+      return 0;
     }
 
-    return metrics;
+    const timeWindow = 60000; // 1 minute window
+    const timeElapsed = Date.now() - pool.lastExecutionTime;
+
+    if (timeElapsed > timeWindow) {
+      return 0;
+    }
+
+    return (pool.totalExecutions / timeWindow) * 1000; // Convert to per second
   }
 
-  getHandlerHealthStatus(handlerId: string): {
-    healthy: boolean;
-    activeExecutions: number;
-    averageResponseTime: number;
-    errorRate: number;
-    circuitBreakerState: string;
-  } {
-    const pool = this.handlerPools.get(handlerId);
+  /**
+   * Calculate health score for a pool
+   */
+  private calculateHealthScore(pool: HandlerPool): number {
+    const errorRate = pool.totalExecutions > 0 ? pool.failedExecutions / pool.totalExecutions : 0;
+    const utilization = pool.activeExecutions / pool.concurrencyLimit;
+    const circuitBreakerPenalty = pool.circuitBreakerState === CircuitBreakerState.OPEN ? 0.5 : 0;
+
+    return Math.max(0, 1 - errorRate - (utilization > 0.8 ? 0.2 : 0) - circuitBreakerPenalty);
+  }
+
+  /**
+   * Calculate efficiency for a pool
+   */
+  private calculateEfficiency(pool: HandlerPool): number {
+    if (pool.totalExecutions === 0) {
+      return 1;
+    }
+
+    const successRate = (pool.totalExecutions - pool.failedExecutions) / pool.totalExecutions;
+    const utilizationEfficiency = Math.min(pool.activeExecutions / pool.concurrencyLimit, 1);
+
+    return (successRate + utilizationEfficiency) / 2;
+  }
+
+  // Resource monitoring methods (simplified implementations)
+  private getMemoryUsage(): number {
+    return process.memoryUsage().heapUsed / 1024 / 1024; // MB
+  }
+
+  private getCpuUsage(): number {
+    return process.cpuUsage().user / 1000000; // Simplified CPU usage
+  }
+
+  private getAvailableMemory(): number {
+    return process.memoryUsage().heapTotal / 1024 / 1024; // MB
+  }
+
+  private getAvailableCpu(): number {
+    return 100; // Simplified - would need actual CPU monitoring
+  }
+
+  private getAvailableThreads(): number {
+    return 1000; // Simplified - would need actual thread pool monitoring
+  }
+
+  private getMemoryPressure(): 'low' | 'medium' | 'high' | 'critical' {
+    const memoryUsage = this.getMemoryUsage();
+    const availableMemory = this.getAvailableMemory();
+    const ratio = memoryUsage / availableMemory;
+
+    if (ratio > 0.9) return 'critical';
+    if (ratio > 0.7) return 'high';
+    if (ratio > 0.5) return 'medium';
+    return 'low';
+  }
+
+  private getCpuPressure(): 'low' | 'medium' | 'high' | 'critical' {
+    const cpuUsage = this.getCpuUsage();
+
+    if (cpuUsage > 90) return 'critical';
+    if (cpuUsage > 70) return 'high';
+    if (cpuUsage > 50) return 'medium';
+    return 'low';
+  }
+
+  private getThreadPressure(activeThreads: number): 'low' | 'medium' | 'high' | 'critical' {
+    const availableThreads = this.getAvailableThreads();
+    const ratio = activeThreads / availableThreads;
+
+    if (ratio > 0.9) return 'critical';
+    if (ratio > 0.7) return 'high';
+    if (ratio > 0.5) return 'medium';
+    return 'low';
+  }
+
+  private calculateInterferenceScore(): number {
+    // Simplified interference calculation
+    const totalPools = this.pools.size;
+    return totalPools > 1 ? 0.1 : 0; // Lower is better
+  }
+
+  private calculateFaultContainment(): number {
+    const openCircuitBreakers = Array.from(this.pools.values()).filter((pool) => pool.circuitBreakerState === CircuitBreakerState.OPEN).length;
+    const totalPools = this.pools.size;
+
+    return totalPools > 0 ? (totalPools - openCircuitBreakers) / totalPools : 1;
+  }
+
+  private calculateSharingEfficiency(): number {
+    const totalCapacity = Array.from(this.pools.values()).reduce((sum, pool) => sum + pool.concurrencyLimit, 0);
+    const totalActive = Array.from(this.pools.values()).reduce((sum, pool) => sum + pool.activeExecutions, 0);
+
+    return totalCapacity > 0 ? totalActive / totalCapacity : 0;
+  }
+
+  /**
+   * Reset circuit breaker for a specific pool
+   */
+  resetCircuitBreaker(isolationContext: string): boolean {
+    const pool = this.pools.get(isolationContext);
 
     if (!pool) {
-      return {
-        healthy: false,
-        activeExecutions: 0,
-        averageResponseTime: 0,
-        errorRate: 1,
-        circuitBreakerState: 'UNKNOWN',
-      };
+      return false;
     }
 
-    const errorRate = pool.totalExecutions > 0 ? pool.failedExecutions / pool.totalExecutions : 0;
-    const healthy = pool.circuitBreakerState === 'CLOSED' && errorRate < 0.1; // Less than 10% error rate
+    pool.circuitBreakerState = CircuitBreakerState.CLOSED;
+    pool.circuitBreakerFailures = 0;
+    pool.circuitBreakerLastFailure = undefined;
 
-    return {
-      healthy,
-      activeExecutions: pool.activeExecutions,
-      averageResponseTime: pool.averageExecutionTime,
-      errorRate,
-      circuitBreakerState: pool.circuitBreakerState,
-    };
+    this.logger.log(`Circuit breaker reset for pool: ${isolationContext}`);
+    this.updateMetrics();
+
+    return true;
   }
 
-  cleanup(): void {
-    // Clear all pending queues
-    for (const pool of this.handlerPools.values()) {
-      pool.pendingQueue.forEach((item) => {
-        item.reject(new Error('Service shutting down'));
-      });
+  /**
+   * Cleanup all pools and pending executions
+   */
+  async cleanup(): Promise<void> {
+    this.logger.debug('Cleaning up handler pools...');
+
+    for (const pool of this.pools.values()) {
+      // Reject all pending executions
+      for (const queuedItem of pool.pendingQueue) {
+        queuedItem.reject(new Error('Service shutting down'));
+      }
       pool.pendingQueue.length = 0;
     }
 
-    this.handlerPools.clear();
-    this.logger.debug('Handler pool service cleaned up');
+    this.pools.clear();
+    this.metricsSubject.complete();
+
+    this.logger.debug('Handler pool service cleanup completed');
   }
 }

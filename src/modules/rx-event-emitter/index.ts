@@ -1,48 +1,87 @@
-// =============================================================================
-// PUBLIC API SURFACE - RxJS Event Emitter Library
-// =============================================================================
-// This file defines the public API boundaries for the library.
-// Only exports listed here are considered part of the stable public API.
+/**
+ * @fileoverview RxJS Event Emitter - Modern Event-Driven Architecture for NestJS
+ *
+ * A comprehensive event emitter library built on RxJS providing:
+ * - Type-safe event handling with decorators
+ * - Advanced persistence and dead letter queues
+ * - Circuit breakers and error recovery
+ * - Handler discovery and dependency management
+ * - Comprehensive monitoring and metrics
+ *
+ * @version 2.0.0
+ * @license MIT
+ */
 
-// ===== CORE MODULE EXPORTS =====
+// =============================================================================
+// CORE EXPORTS - Essential components for event-driven applications
+// =============================================================================
+
 export { EventEmitterModule } from './event-emitter.module';
 export { EventEmitterService } from './event-emitter.service';
-
-// ===== DECORATOR EXPORTS =====
 export { EventHandler } from './decorators/event-handler.decorator';
 
-// ===== INTERFACE EXPORTS - PUBLIC API TYPES =====
+// =============================================================================
+// TYPE EXPORTS - All interfaces and types
+// =============================================================================
+
+// Core event types
+export type { Event, EventMetadata, EmitOptions, EventStats, StreamMetrics } from './interfaces';
+
+// Configuration types
 export type {
   EventEmitterOptions,
-  Event,
-  EventMetadata,
-  HandlerOptions,
-  PersistenceAdapter,
-  CircuitBreakerMetrics,
-  ErrorRecoveryMetrics,
+  BackpressureConfig,
+  ErrorRecoveryConfig,
+  HandlerExecutionConfig,
+  HandlerDiscoveryConfig,
+  ValidationConfig,
+  PersistenceConfig,
+  DeadLetterQueueConfig,
+  MonitoringConfig,
+  TenantIsolationConfig,
+  ModuleConfig,
+} from './interfaces';
+
+// Handler types
+export type { HandlerOptions, HandlerMetadata, RegisteredHandler, HandlerExecutionContext, ExecutionResult, HandlerStats, HandlerPool } from './interfaces';
+
+// Persistence types
+export type { PersistenceAdapter, AsyncPersistenceAdapter, Transaction, PersistenceStats, EventQuery, QueryResult } from './interfaces';
+
+// Discovery and dependency types
+export type {
+  DiscoveryCache,
+  DiscoveryMetrics,
+  PriorityConflict,
   PriorityValidationResult,
   HandlerPriorityMap,
-} from './event-emitter.interfaces';
+  CircularDependency,
+  DependencyGraph,
+  HandlerIsolationMetrics,
+} from './interfaces';
 
-// ===== ENUM EXPORTS =====
-export { CircuitBreakerState, PriorityValidationError } from './event-emitter.interfaces';
+// =============================================================================
+// ENUM EXPORTS - Constants and enumerations
+// =============================================================================
 
-// ===== ADAPTER EXPORTS =====
+export { EventStatus, EventPriority, CircuitBreakerState, PriorityValidationError } from './interfaces';
+
+// =============================================================================
+// BUILT-IN ADAPTERS - Ready-to-use persistence implementations
+// =============================================================================
+
 export { InMemoryPersistenceAdapter } from './adapters/in-memory.adapter';
 
-// ===== SERVICE EXPORTS =====
-export { HandlerPoolService, MetricsService, HandlerDiscoveryService } from './services';
+// =============================================================================
+// SERVICES - Advanced functionality for complex scenarios
+// =============================================================================
+
+export { HandlerPoolService, MetricsService, HandlerDiscoveryService, StreamManagementService, HandlerExecutionService } from './services';
+
+export { EventPersistenceService, DeadLetterQueueService, DependencyAnalyzerService } from './internal';
 
 // =============================================================================
-// INTERNAL/ADVANCED API - USE WITH CAUTION
+// CONSTANTS - Dependency injection tokens
 // =============================================================================
-// These exports are intended for advanced use cases and may change
-// without major version updates. Use at your own risk.
 
-export { EventPersistenceService, DeadLetterQueueService } from './internal';
-
-// Internal interfaces for advanced users
-export type { HandlerMetadata, DiscoveryCache, DiscoveryMetrics, PriorityConflict } from './event-emitter.interfaces';
-
-// Internal constants - may be needed for custom implementations
-export { EVENT_EMITTER_OPTIONS, EVENT_HANDLER_METADATA, EVENT_HANDLER_OPTIONS } from './event-emitter.interfaces';
+export { EVENT_EMITTER_OPTIONS, EVENT_HANDLER_METADATA, EVENT_HANDLER_OPTIONS } from './interfaces';

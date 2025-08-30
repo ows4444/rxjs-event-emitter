@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { BehaviorSubject, Subject, Subscription, Observable, merge } from 'rxjs';
 import { takeUntil, tap, catchError, shareReplay } from 'rxjs/operators';
-import { Event, EventEmitterOptions } from '../event-emitter.interfaces';
+import { BackpressureStrategy, Event, EventEmitterOptions } from '../interfaces';
 
 /**
  * Dedicated service for managing RxJS streams and subscription lifecycle
@@ -181,18 +181,22 @@ export class StreamManagementService implements OnModuleDestroy {
    * Handle backpressure based on configured strategy
    */
   private handleBackpressure(_event: Event): void {
-    const strategy = this.options.backpressure?.overflowStrategy || 'dropLatest';
+    const strategy = this.options.backpressure?.overflowStrategy || BackpressureStrategy.DROP_LATEST;
 
     switch (strategy) {
-      case 'dropOldest':
+      case BackpressureStrategy.DROP_OLDEST:
         // Implementation would require queue tracking
         this.logger.warn('Event dropped due to backpressure (dropOldest)');
         break;
-      case 'dropLatest':
+      case BackpressureStrategy.DROP_LATEST:
         this.droppedEventCount++;
         this.logger.warn(`Event dropped due to backpressure (dropLatest). Total dropped: ${this.droppedEventCount}`);
         break;
-      case 'error':
+      case BackpressureStrategy.ADAPTIVE:
+        // Adaptive strategy could involve dynamic resizing or pausing emitters
+        this.logger.warn('Event dropped due to backpressure (adaptive)');
+        break;
+      case BackpressureStrategy.ERROR:
         throw new Error('Event bus buffer overflow - increase buffer size or reduce event volume');
       default:
         this.logger.warn('Unknown backpressure strategy, dropping event');

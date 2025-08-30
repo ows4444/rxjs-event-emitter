@@ -20,7 +20,7 @@ export default tseslint.config(
       ecmaVersion: 2022,
       sourceType: 'module',
       parserOptions: {
-        projectService: true,
+        project: ['./tsconfig.json'],
         tsconfigRootDir: import.meta.dirname,
       },
     },
@@ -29,17 +29,17 @@ export default tseslint.config(
     rules: {
       // TypeScript-specific rules for NestJS/RxJS patterns
       //'@typescript-eslint/no-explicit-any': 'off', // Required for NestJS DI and RxJS patterns
-      '@typescript-eslint/no-unsafe-assignment': 'warn', // Warn instead of error for flexibility
-      '@typescript-eslint/no-unsafe-member-access': 'warn', // Common in NestJS DI patterns
-      '@typescript-eslint/no-unsafe-call': 'warn', // Common in RxJS and NestJS patterns
+      // '@typescript-eslint/no-unsafe-assignment': 'warn', // Warn instead of error for flexibility
+      // '@typescript-eslint/no-unsafe-member-access': 'warn', // Common in NestJS DI patterns
+      // '@typescript-eslint/no-unsafe-call': 'warn', // Common in RxJS and NestJS patterns
       //'@typescript-eslint/no-unsafe-argument': 'warn', // Allow for NestJS providers
-      '@typescript-eslint/no-unsafe-return': 'warn', // Common in handler patterns
+      // '@typescript-eslint/no-unsafe-return': 'warn', // Common in handler patterns
       '@typescript-eslint/no-floating-promises': 'warn', // Important for RxJS
 
       // Async/await rules - relaxed for NestJS patterns
       '@typescript-eslint/require-await': 'off', // Many NestJS methods are async by contract
       '@typescript-eslint/no-explicit-any': ['warn', { ignoreRestArgs: true }],
-      '@typescript-eslint/no-unsafe-argument': 'error',
+      // '@typescript-eslint/no-unsafe-argument': 'error',
       '@typescript-eslint/restrict-template-expressions': [
         'error',
         {

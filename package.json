@@ -21,7 +21,7 @@
     "test:all:cov": "npm run test:cov:unit && npm run test:cov:int && npm run test:cov:e2e",
     "test:cov": "jest --config test/jest.config.json --coverage",
     "test:cov:unit": "jest --config test/jest-unit.json --coverage",
-    "test:cov:int": "jest --config test/jest-integration.json --coverage", 
+    "test:cov:int": "jest --config test/jest-integration.json --coverage",
     "test:cov:e2e": "jest --config test/jest-e2e.json --coverage"
   },
   "dependencies": {

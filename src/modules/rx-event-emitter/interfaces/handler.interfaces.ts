@@ -1,129 +1,339 @@
 /**
- * Handler-related interfaces for the RxJS Event Emitter Library
- * Contains handler options, metadata, and execution definitions
+ * @fileoverview Handler interfaces for event processing
+ * Type-safe handler registration and execution
  */
 
 import type { Observable } from 'rxjs';
-import type { Event } from './core.interfaces';
+import type { Event, EventPriority } from './core.interfaces';
 
+/**
+ * Handler execution isolation strategy
+ */
+export enum IsolationStrategy {
+  /** Each handler gets its own execution context */
+  PER_HANDLER = 'per-handler',
+  /** Handlers for same event type share context */
+  PER_EVENT_TYPE = 'per-event-type',
+  /** All handlers share same context */
+  SHARED = 'shared',
+}
+
+/**
+ * Handler execution timeout strategy
+ */
+export enum TimeoutStrategy {
+  /** Cancel handler execution on timeout */
+  CANCEL = 'cancel',
+  /** Log warning but continue */
+  WARN = 'warn',
+  /** Allow handler to continue */
+  CONTINUE = 'continue',
+}
+
+/**
+ * Circuit breaker state
+ */
+export enum CircuitBreakerState {
+  CLOSED = 'closed',
+  OPEN = 'open',
+  HALF_OPEN = 'half-open',
+}
+
+/**
+ * Resource isolation level
+ */
+export enum ResourceIsolation {
+  /** Strict resource limits */
+  STRICT = 'strict',
+  /** Shared resources with limits */
+  SHARED = 'shared',
+  /** No resource isolation */
+  NONE = 'none',
+}
+
+/**
+ * Configuration options for event handlers
+ */
 export interface HandlerOptions {
-  priority?: number;
-  filter?: (event: Event) => boolean;
-  transform?: (event: Event) => Observable<Event>;
+  /** Handler priority (higher = earlier execution) */
+  priority?: EventPriority;
+  /** Event filter function */
+  filter?: <TPayload>(event: Event<TPayload>) => boolean;
+  /** Event transformation function */
+  transform?: <TPayload>(event: Event<TPayload>) => Observable<Event<TPayload>>;
+  /** Handler timeout in milliseconds */
   timeout?: number;
+  /** Number of retry attempts on failure */
   retries?: number;
+  /** Whether handler supports retries */
   retryable?: boolean;
+  /** Enable handler isolation */
   isolated?: boolean;
+  /** Allow concurrent execution */
   concurrent?: boolean;
+  /** Maximum concurrent executions */
   maxConcurrency?: number;
+  /** Bulkhead size for isolation */
   bulkheadSize?: number;
+  /** Isolation context identifier */
   isolationContext?: string;
-  timeoutStrategy?: 'cancel' | 'warn' | 'continue';
-  queueTimeoutMs?: number;
+  /** Timeout handling strategy */
+  timeoutStrategy?: TimeoutStrategy;
+  /** Queue timeout in milliseconds */
+  queueTimeout?: number;
+  /** Maximum queue size */
   maxQueueSize?: number;
+  /** Enable circuit breaker */
   circuitBreakerEnabled?: boolean;
+  /** Circuit breaker failure threshold */
   circuitBreakerThreshold?: number;
-  resourceIsolation?: 'strict' | 'shared' | 'none';
-  dependencies?: string[];
-  conflictResolution?: 'strict' | 'warn' | 'auto-increment';
+  /** Resource isolation level */
+  resourceIsolation?: ResourceIsolation;
+  /** Handler dependencies */
+  dependencies?: readonly string[];
+  /** Priority group identifier */
   priorityGroup?: string;
-  tags?: string[];
+  /** Handler tags for categorization */
+  tags?: readonly string[];
+  /** Handler description */
   description?: string;
+  /** Custom metadata */
+  metadata?: Readonly<Record<string, unknown>>;
 }
 
+/**
+ * Metadata about registered handlers
+ */
 export interface HandlerMetadata {
-  eventName: string;
-  options: HandlerOptions;
-  methodName: string;
-  className: string;
-  handlerId: string;
-  providerToken?: string;
-  instance?: unknown;
-  lastExecuted?: number;
-  executionCount?: number;
+  /** Event name this handler processes */
+  readonly eventName: string;
+  /** Handler options */
+  readonly options: HandlerOptions;
+  /** Method name */
+  readonly methodName: string;
+  /** Class name */
+  readonly className: string;
+  /** Unique handler identifier */
+  readonly handlerId: string;
+  /** Provider token */
+  readonly providerToken?: string;
+  /** Handler instance */
+  readonly instance?: unknown;
+  /** Last execution timestamp */
+  readonly lastExecuted?: number;
+  /** Total execution count */
+  readonly executionCount?: number;
+  /** Average execution time */
+  readonly averageExecutionTime?: number;
 }
 
+/**
+ * Complete registered handler information
+ */
 export interface RegisteredHandler {
-  eventName: string;
-  handler: (...args: unknown[]) => unknown;
-  instance: unknown;
-  options: HandlerOptions;
-  handlerId: string;
-  metadata: HandlerMetadata;
+  /** Event name */
+  readonly eventName: string;
+  /** Handler function */
+  readonly handler: (...args: unknown[]) => unknown;
+  /** Handler instance */
+  readonly instance: unknown;
+  /** Handler options */
+  readonly options: HandlerOptions;
+  /** Unique handler identifier */
+  readonly handlerId: string;
+  /** Handler metadata */
+  readonly metadata: HandlerMetadata;
 }
 
+/**
+ * Handler execution context
+ */
 export interface HandlerExecutionContext {
-  event: Event;
-  handler: RegisteredHandler;
-  startTime: number;
-  attempt: number;
-  correlationId: string;
-  parentContext?: HandlerExecutionContext;
+  /** Event being processed */
+  readonly event: Event;
+  /** Handler being executed */
+  readonly handler: RegisteredHandler;
+  /** Execution start time */
+  readonly startTime: number;
+  /** Retry attempt number */
+  readonly attempt: number;
+  /** Correlation ID */
+  readonly correlationId: string;
+  /** Parent execution context */
+  readonly parentContext?: HandlerExecutionContext;
+  /** Execution metadata */
+  readonly metadata: Readonly<Record<string, unknown>>;
 }
 
+/**
+ * Handler execution result
+ */
 export interface ExecutionResult {
-  success: boolean;
-  handlerId: string;
-  executionTime: number;
-  error?: Error;
-  retryCount?: number;
-  memoryUsage?: {
-    before: number;
-    after: number;
-    peak: number;
+  /** Whether execution succeeded */
+  readonly success: boolean;
+  /** Handler ID */
+  readonly handlerId: string;
+  /** Execution time in milliseconds */
+  readonly executionTime: number;
+  /** Error if execution failed */
+  readonly error?: Error;
+  /** Number of retries attempted */
+  readonly retryCount?: number;
+  /** Memory usage during execution */
+  readonly memoryUsage?: {
+    readonly before: number;
+    readonly after: number;
+    readonly peak: number;
   };
-  context?: HandlerExecutionContext;
+  /** Execution context */
+  readonly context?: HandlerExecutionContext;
+  /** Result metadata */
+  readonly metadata?: Readonly<Record<string, unknown>>;
 }
 
+/**
+ * Handler execution pool for isolation and concurrency
+ */
 export interface HandlerPool {
-  isolationContext: string;
-  concurrencyLimit: number;
-  activeExecutions: number;
-  totalExecutions: number;
-  failedExecutions: number;
-  averageExecutionTime: number;
-  lastExecutionTime?: number;
-  pendingQueue: {
-    handler: RegisteredHandler;
-    event: Event;
-    enqueuedAt: number;
-    resolve: (value: void) => void;
-    reject: (error: Error) => void;
+  /** Isolation context identifier */
+  readonly isolationContext: string;
+  /** Concurrency limit */
+  readonly concurrencyLimit: number;
+  /** Current active executions */
+  readonly activeExecutions: number;
+  /** Total executions processed */
+  readonly totalExecutions: number;
+  /** Total failed executions */
+  readonly failedExecutions: number;
+  /** Average execution time */
+  readonly averageExecutionTime: number;
+  /** Last execution timestamp */
+  readonly lastExecutionTime?: number;
+  /** Pending execution queue */
+  readonly pendingQueue: readonly {
+    readonly handler: RegisteredHandler;
+    readonly event: Event;
+    readonly enqueuedAt: number;
+    readonly resolve: (value: void) => void;
+    readonly reject: (error: Error) => void;
   }[];
-  maxQueueSize: number;
-  droppedTasks: number;
-  queueTimeoutMs: number;
-  circuitBreakerState: 'CLOSED' | 'OPEN' | 'HALF_OPEN';
-  circuitBreakerFailures: number;
-  circuitBreakerLastFailure?: number;
-  isolationStrategy: 'per-handler' | 'per-event-type' | 'shared';
+  /** Maximum queue size */
+  readonly maxQueueSize: number;
+  /** Number of dropped tasks */
+  readonly droppedTasks: number;
+  /** Queue timeout in milliseconds */
+  readonly queueTimeout: number;
+  /** Circuit breaker state */
+  readonly circuitBreakerState: CircuitBreakerState;
+  /** Circuit breaker failure count */
+  readonly circuitBreakerFailures: number;
+  /** Last circuit breaker failure time */
+  readonly circuitBreakerLastFailure?: number;
+  /** Isolation strategy */
+  readonly isolationStrategy: IsolationStrategy;
 }
 
+/**
+ * Handler performance statistics
+ */
 export interface HandlerStats {
-  execution: {
-    totalExecutions: number;
-    successfulExecutions: number;
-    failedExecutions: number;
-    averageExecutionTime: number;
-    timeouts: number;
-    lastExecution?: number;
+  /** Execution statistics */
+  readonly execution: {
+    readonly totalExecutions: number;
+    readonly successfulExecutions: number;
+    readonly failedExecutions: number;
+    readonly averageExecutionTime: number;
+    readonly minExecutionTime: number;
+    readonly maxExecutionTime: number;
+    readonly timeouts: number;
+    readonly lastExecution?: number;
   };
-  circuitBreaker: {
-    state: 'CLOSED' | 'OPEN' | 'HALF_OPEN';
-    failures: number;
-    lastFailure?: number;
-    nextAttempt?: number;
+  /** Circuit breaker statistics */
+  readonly circuitBreaker: {
+    readonly state: CircuitBreakerState;
+    readonly failures: number;
+    readonly lastFailure?: number;
+    readonly nextAttempt?: number;
+    readonly successRate: number;
   };
-  timeout: {
-    totalExecutions: number;
-    timeouts: number;
-    successes: number;
-    averageExecutionTime: number;
-    lastTimeout?: number;
+  /** Timeout statistics */
+  readonly timeout: {
+    readonly totalExecutions: number;
+    readonly timeouts: number;
+    readonly successes: number;
+    readonly averageExecutionTime: number;
+    readonly lastTimeout?: number;
   };
-  resource: {
-    memoryUsage: number;
-    cpuTime: number;
-    isolationLevel: string;
+  /** Resource usage statistics */
+  readonly resource: {
+    readonly memoryUsage: number;
+    readonly cpuTime: number;
+    readonly isolationLevel: string;
+    readonly poolUtilization: number;
   };
+}
+
+/**
+ * Handler registry interface
+ */
+export interface HandlerRegistry {
+  /**
+   * Register a new handler
+   */
+  register(handler: RegisteredHandler): void;
+
+  /**
+   * Unregister a handler
+   */
+  unregister(handlerId: string): void;
+
+  /**
+   * Get handlers for an event
+   */
+  getHandlers(eventName: string): readonly RegisteredHandler[];
+
+  /**
+   * Get all registered handlers
+   */
+  getAllHandlers(): readonly RegisteredHandler[];
+
+  /**
+   * Get handler by ID
+   */
+  getHandler(handlerId: string): RegisteredHandler | undefined;
+
+  /**
+   * Check if handler exists
+   */
+  hasHandler(handlerId: string): boolean;
+
+  /**
+   * Get handler statistics
+   */
+  getHandlerStats(handlerId: string): HandlerStats | undefined;
+}
+
+/**
+ * Handler execution service interface
+ */
+export interface HandlerExecutionService {
+  /**
+   * Execute a handler with an event
+   */
+  execute(handler: RegisteredHandler, event: Event): Observable<ExecutionResult>;
+
+  /**
+   * Execute all handlers for an event
+   */
+  executeHandlers(eventName: string, event: Event): Observable<ExecutionResult[]>;
+
+  /**
+   * Get execution statistics
+   */
+  getStats(): Readonly<Record<string, HandlerStats>>;
+
+  /**
+   * Get handler pool information
+   */
+  getPoolInfo(isolationContext: string): HandlerPool | undefined;
 }

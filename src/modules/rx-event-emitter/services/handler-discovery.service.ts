@@ -2,15 +2,9 @@ import { Injectable, Logger } from '@nestjs/common';
 import { DiscoveryService } from '@nestjs/core';
 import { InstanceWrapper } from '@nestjs/core/injector/instance-wrapper';
 import { createHash } from 'crypto';
-import { DiscoveryCache, DiscoveryMetrics, EVENT_HANDLER_METADATA, HandlerMetadata, HandlerOptions } from '../event-emitter.interfaces';
+import { DiscoveryCache, DiscoveryMetrics, EVENT_HANDLER_METADATA, HandlerMetadata, HandlerOptions, RegisteredHandler } from '../interfaces';
 
-interface RegisteredHandler {
-  eventName: string;
-  handler: (...args: unknown[]) => unknown;
-  instance: unknown;
-  options: HandlerOptions;
-  handlerId: string;
-}
+// RegisteredHandler interface is now imported from interfaces directory
 
 @Injectable()
 export class HandlerDiscoveryService {

@@ -4,11 +4,33 @@ import { EventEmitterService } from './event-emitter.service';
 import { EventPersistenceService } from './event-persistence.service';
 import { DeadLetterQueueService } from './dead-letter-queue.service';
 import { DependencyAnalyzerService } from './dependency-analyzer.service';
-import { HandlerPoolService } from './services/handler-pool.service';
-import { MetricsService } from './services/metrics.service';
-import { HandlerDiscoveryService } from './services/handler-discovery.service';
-import { EVENT_EMITTER_OPTIONS, EventEmitterOptions } from './event-emitter.interfaces';
+import { HandlerPoolService, MetricsService, HandlerDiscoveryService, StreamManagementService, HandlerExecutionService } from './services';
+import { EVENT_EMITTER_OPTIONS, EventEmitterOptions } from './interfaces';
 
+/**
+ * Global NestJS module for RxJS Event Emitter functionality
+ *
+ * This module provides event-driven architecture capabilities with:
+ * - Event publishing and subscription
+ * - Handler auto-discovery
+ * - Persistence and dead letter queues
+ * - Circuit breakers and error recovery
+ * - Metrics and monitoring
+ *
+ * @example
+ * ```typescript
+ * @Module({
+ *   imports: [
+ *     EventEmitterModule.forRoot({
+ *       persistence: { enabled: true },
+ *       dlq: { enabled: true },
+ *       monitoring: { enabled: true }
+ *     })
+ *   ]
+ * })
+ * export class AppModule {}
+ * ```
+ */
 @Global()
 @Module({})
 export class EventEmitterModule implements OnModuleInit, OnModuleDestroy {
@@ -25,6 +47,8 @@ export class EventEmitterModule implements OnModuleInit, OnModuleDestroy {
       HandlerPoolService,
       MetricsService,
       HandlerDiscoveryService,
+      StreamManagementService,
+      HandlerExecutionService,
       EventEmitterService,
       EventPersistenceService,
       DeadLetterQueueService,
@@ -165,7 +189,7 @@ export class EventEmitterModule implements OnModuleInit, OnModuleDestroy {
 
       // Step 2: Replay unprocessed events with timeout
       this.logger.debug('Replaying unprocessed events...');
-      this.eventEmitter.replayUnprocessedEvents();
+      await this.eventEmitter.replayUnprocessedEvents();
       this.logger.debug('Unprocessed events replayed successfully');
     } catch (error) {
       throw new Error(`Initialization step failed: ${error instanceof Error ? error.message : String(error)}`);

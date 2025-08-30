@@ -1,332 +1,645 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { BehaviorSubject, Observable, Subscription } from 'rxjs';
-import { CircuitBreakerMetrics, CircuitBreakerState, ErrorRecoveryMetrics } from '../event-emitter.interfaces';
+/**
+ * @fileoverview Metrics Service - Modern comprehensive metrics collection and monitoring
+ * Provides real-time metrics, health monitoring, and performance analytics
+ */
 
+import { Injectable, Logger } from '@nestjs/common';
+import { BehaviorSubject, Observable, interval, Subscription, combineLatest } from 'rxjs';
+import { map, distinctUntilChanged } from 'rxjs/operators';
+import { EventStats, StreamMetrics, HandlerStats, HandlerIsolationMetrics, MonitoringConfig, EventEmitterOptions, CircuitBreakerState } from '../interfaces';
+
+/**
+ * Comprehensive metrics aggregation interface
+ */
+export interface SystemMetrics {
+  /** Event processing statistics */
+  readonly events: EventStats;
+
+  /** Stream processing metrics */
+  readonly streams: StreamMetrics;
+
+  /** Handler statistics by handler ID */
+  readonly handlers: Readonly<Record<string, HandlerStats>>;
+
+  /** Handler isolation and pool metrics */
+  readonly isolation: HandlerIsolationMetrics;
+
+  /** System resource utilization */
+  readonly system: {
+    /** Memory usage in MB */
+    readonly memoryUsage: number;
+    /** CPU usage percentage */
+    readonly cpuUsage: number;
+    /** Uptime in milliseconds */
+    readonly uptime: number;
+    /** Event processing rate (events/sec) */
+    readonly eventRate: number;
+    /** Error rate percentage */
+    readonly errorRate: number;
+  };
+
+  /** Health status */
+  readonly health: {
+    /** Overall system health */
+    readonly healthy: boolean;
+    /** Health score (0-100) */
+    readonly score: number;
+    /** Last health check timestamp */
+    readonly lastCheck: number;
+    /** Active alerts */
+    readonly alerts: readonly string[];
+  };
+
+  /** Collection timestamp */
+  readonly timestamp: number;
+}
+
+/**
+ * Modern metrics service with comprehensive monitoring capabilities
+ */
 @Injectable()
 export class MetricsService {
   private readonly logger = new Logger(MetricsService.name);
-  private readonly metrics$ = new BehaviorSubject<Record<string, unknown>>({});
-  private readonly bufferMetrics$ = new BehaviorSubject<{ size: number; maxSize: number; dropped: number }>({
-    size: 0,
-    maxSize: 0,
-    dropped: 0,
+
+  // Core metrics subjects
+  private readonly eventStatsSubject = new BehaviorSubject<EventStats>({
+    totalEmitted: 0,
+    totalProcessed: 0,
+    totalFailed: 0,
+    averageProcessingTime: 0,
+    lastEmittedAt: undefined,
+    lastProcessedAt: undefined,
+    currentlyProcessing: 0,
+    retrying: 0,
+    deadLettered: 0,
   });
 
-  private readonly errorRecoveryMetrics$ = new BehaviorSubject<ErrorRecoveryMetrics>({
-    circuitBreakers: new Map(),
-    totalRetryAttempts: 0,
-    successfulRecoveries: 0,
-    failedRecoveries: 0,
-    averageRecoveryTime: 0,
+  private readonly streamMetricsSubject = new BehaviorSubject<StreamMetrics>({
+    bufferSize: 0,
+    maxBufferSize: 1000,
+    droppedEvents: 0,
+    warningThreshold: 800,
+    backpressureActive: false,
+    throughput: {
+      eventsPerSecond: 0,
+      averageLatency: 0,
+      p95Latency: 0,
+      p99Latency: 0,
+      maxLatency: 0,
+    },
+    health: {
+      healthy: true,
+      memoryPressure: 0,
+      cpuUsage: 0,
+      lastCheckAt: Date.now(),
+    },
   });
 
-  private readonly subscriptionMetadata = new Map<
-    Subscription,
-    {
-      name: string;
-      createdAt: number;
-      context?: string;
-      cleanupCallbacks: (() => void)[];
-    }
-  >();
+  private readonly handlerStatsSubject = new BehaviorSubject<Record<string, HandlerStats>>({});
 
-  private readonly timeoutMetrics = new Map<
-    string,
-    {
-      totalExecutions: number;
-      timeouts: number;
-      successes: number;
-      averageExecutionTime: number;
-      lastTimeout?: number;
-    }
-  >();
+  private readonly isolationMetricsSubject = new BehaviorSubject<HandlerIsolationMetrics>({
+    totalPools: 0,
+    activePools: 0,
+    totalActiveExecutions: 0,
+    totalQueuedTasks: 0,
+    totalDroppedTasks: 0,
+    averagePoolUtilization: 0,
+    circuitBreakerStates: {},
+    poolMetrics: new Map(),
+    resourceUsage: {
+      memoryUsage: 0,
+      cpuUsage: 0,
+      activeThreads: 0,
+      availableResources: {
+        memory: 0,
+        cpu: 0,
+        threads: 0,
+      },
+      pressure: {
+        memory: 'low',
+        cpu: 'low',
+        threads: 'low',
+      },
+    },
+    isolation: {
+      interferenceScore: 0,
+      faultContainment: 1,
+      sharingEfficiency: 0.8,
+    },
+  });
 
-  private readonly circuitBreakers = new Map<string, CircuitBreakerMetrics>();
-  private droppedEventCount = 0;
-  private metricsInterval?: NodeJS.Timeout;
+  // Aggregated system metrics
+  private readonly systemMetricsSubject = new BehaviorSubject<SystemMetrics>({
+    events: this.eventStatsSubject.value,
+    streams: this.streamMetricsSubject.value,
+    handlers: {},
+    isolation: this.isolationMetricsSubject.value,
+    system: {
+      memoryUsage: 0,
+      cpuUsage: 0,
+      uptime: 0,
+      eventRate: 0,
+      errorRate: 0,
+    },
+    health: {
+      healthy: true,
+      score: 100,
+      lastCheck: Date.now(),
+      alerts: [],
+    },
+    timestamp: Date.now(),
+  });
 
-  initializeMetrics(): void {
-    // Start metrics collection interval
-    this.metricsInterval = setInterval(() => {
-      this.collectMetrics();
-    }, 5000); // Collect every 5 seconds
+  // Internal tracking
+  private readonly latencyHistory: number[] = [];
+  private readonly eventRateHistory: number[] = [];
+  private readonly alertHistory: string[] = [];
 
-    this.logger.debug('Metrics collection initialized');
+  private startTime = Date.now();
+  private metricsInterval?: Subscription;
+  private healthCheckInterval?: Subscription;
+
+  constructor(private readonly options: EventEmitterOptions) {
+    this.initializeMetrics();
   }
 
-  private collectMetrics(): void {
-    const metrics = {
+  /**
+   * Initialize metrics collection and monitoring
+   */
+  private initializeMetrics(): void {
+    const monitoringConfig = this.options.monitoring;
+
+    if (!monitoringConfig?.enabled) {
+      this.logger.debug('Metrics collection disabled');
+      return;
+    }
+
+    // Start periodic metrics aggregation
+    this.metricsInterval = interval(1000) // Every second
+      .subscribe(() => this.aggregateMetrics());
+
+    // Start health checks
+    this.healthCheckInterval = interval(5000) // Every 5 seconds
+      .subscribe(() => this.performHealthCheck());
+
+    this.logger.debug('Metrics service initialized');
+  }
+
+  /**
+   * Get real-time system metrics observable
+   */
+  getSystemMetrics(): Observable<SystemMetrics> {
+    return this.systemMetricsSubject.asObservable();
+  }
+
+  /**
+   * Get current system metrics snapshot
+   */
+  getCurrentMetrics(): SystemMetrics {
+    return this.systemMetricsSubject.value;
+  }
+
+  /**
+   * Get event statistics observable
+   */
+  getEventStats(): Observable<EventStats> {
+    return this.eventStatsSubject.asObservable();
+  }
+
+  /**
+   * Get stream metrics observable
+   */
+  getStreamMetrics(): Observable<StreamMetrics> {
+    return this.streamMetricsSubject.asObservable();
+  }
+
+  /**
+   * Get handler statistics observable
+   */
+  getHandlerStats(): Observable<Record<string, HandlerStats>> {
+    return this.handlerStatsSubject.asObservable();
+  }
+
+  /**
+   * Get isolation metrics observable
+   */
+  getIsolationMetrics(): Observable<HandlerIsolationMetrics> {
+    return this.isolationMetricsSubject.asObservable();
+  }
+
+  /**
+   * Update event statistics
+   */
+  updateEventStats(update: Partial<EventStats>): void {
+    const current = this.eventStatsSubject.value;
+    this.eventStatsSubject.next({ ...current, ...update });
+  }
+
+  /**
+   * Record event emission
+   */
+  recordEventEmission(): void {
+    const current = this.eventStatsSubject.value;
+    this.eventStatsSubject.next({
+      ...current,
+      totalEmitted: current.totalEmitted + 1,
+      lastEmittedAt: Date.now(),
+    });
+  }
+
+  /**
+   * Record event processing completion
+   */
+  recordEventProcessed(processingTime: number, success: boolean): void {
+    const current = this.eventStatsSubject.value;
+
+    // Update latency history
+    this.latencyHistory.push(processingTime);
+    if (this.latencyHistory.length > 1000) {
+      this.latencyHistory.shift(); // Keep last 1000 samples
+    }
+
+    // Calculate new average processing time
+    const totalProcessed = success ? current.totalProcessed + 1 : current.totalProcessed;
+    const totalFailed = success ? current.totalFailed : current.totalFailed + 1;
+    const newAvg = success ? (current.averageProcessingTime * current.totalProcessed + processingTime) / totalProcessed : current.averageProcessingTime;
+
+    this.eventStatsSubject.next({
+      ...current,
+      totalProcessed,
+      totalFailed,
+      averageProcessingTime: newAvg,
+      lastProcessedAt: Date.now(),
+      currentlyProcessing: Math.max(0, current.currentlyProcessing - 1),
+    });
+  }
+
+  /**
+   * Record event processing start
+   */
+  recordEventProcessingStart(): void {
+    const current = this.eventStatsSubject.value;
+    this.eventStatsSubject.next({
+      ...current,
+      currentlyProcessing: current.currentlyProcessing + 1,
+    });
+  }
+
+  /**
+   * Update stream metrics
+   */
+  updateStreamMetrics(update: Partial<StreamMetrics>): void {
+    const current = this.streamMetricsSubject.value;
+    this.streamMetricsSubject.next({ ...current, ...update });
+  }
+
+  /**
+   * Record buffer state change
+   */
+  recordBufferState(size: number, maxSize?: number, dropped?: number): void {
+    const current = this.streamMetricsSubject.value;
+
+    this.streamMetricsSubject.next({
+      ...current,
+      bufferSize: size,
+      maxBufferSize: maxSize || current.maxBufferSize,
+      droppedEvents: dropped !== undefined ? current.droppedEvents + dropped : current.droppedEvents,
+      backpressureActive: size >= current.warningThreshold,
+    });
+  }
+
+  /**
+   * Update handler statistics
+   */
+  updateHandlerStats(handlerId: string, stats: HandlerStats): void {
+    const current = this.handlerStatsSubject.value;
+    this.handlerStatsSubject.next({
+      ...current,
+      [handlerId]: stats,
+    });
+  }
+
+  /**
+   * Update isolation metrics
+   */
+  updateIsolationMetrics(metrics: HandlerIsolationMetrics): void {
+    this.isolationMetricsSubject.next(metrics);
+  }
+
+  /**
+   * Get metrics for specific handler
+   */
+  getHandlerMetrics(handlerId: string): HandlerStats | undefined {
+    return this.handlerStatsSubject.value[handlerId];
+  }
+
+  /**
+   * Get health status
+   */
+  getHealthStatus(): Observable<{
+    healthy: boolean;
+    score: number;
+    alerts: readonly string[];
+    checks: Record<string, boolean>;
+  }> {
+    return this.systemMetricsSubject.pipe(
+      map((metrics) => ({
+        healthy: metrics.health.healthy,
+        score: metrics.health.score,
+        alerts: metrics.health.alerts,
+        checks: this.getHealthChecks(metrics),
+      })),
+      distinctUntilChanged((prev, curr) => prev.healthy === curr.healthy && prev.score === curr.score && prev.alerts.length === curr.alerts.length),
+    );
+  }
+
+  /**
+   * Aggregate all metrics into system metrics
+   */
+  private aggregateMetrics(): void {
+    const events = this.eventStatsSubject.value;
+    const streams = this.streamMetricsSubject.value;
+    const handlers = this.handlerStatsSubject.value;
+    const isolation = this.isolationMetricsSubject.value;
+
+    // Calculate event rate
+    this.eventRateHistory.push(events.totalProcessed);
+    if (this.eventRateHistory.length > 60) {
+      this.eventRateHistory.shift(); // Keep last 60 seconds
+    }
+
+    const eventRate = this.eventRateHistory.length >= 2 ? this.eventRateHistory[this.eventRateHistory.length - 1] - this.eventRateHistory[0] : 0;
+
+    // Calculate error rate
+    const totalEvents = events.totalProcessed + events.totalFailed;
+    const errorRate = totalEvents > 0 ? (events.totalFailed / totalEvents) * 100 : 0;
+
+    // Update system metrics
+    const systemMetrics: SystemMetrics = {
+      events,
+      streams: {
+        ...streams,
+        throughput: {
+          ...streams.throughput,
+          eventsPerSecond: eventRate,
+          averageLatency: this.calculateAverageLatency(),
+          p95Latency: this.calculatePercentileLatency(95),
+          p99Latency: this.calculatePercentileLatency(99),
+          maxLatency: Math.max(...this.latencyHistory, 0),
+        },
+        health: {
+          ...streams.health,
+          memoryPressure: this.getMemoryPressure(),
+          cpuUsage: this.getCpuUsage(),
+          lastCheckAt: Date.now(),
+        },
+      },
+      handlers,
+      isolation,
+      system: {
+        memoryUsage: process.memoryUsage().heapUsed / 1024 / 1024, // MB
+        cpuUsage: this.getCpuUsage(),
+        uptime: Date.now() - this.startTime,
+        eventRate,
+        errorRate,
+      },
+      health: this.calculateHealthStatus(events, streams, isolation, errorRate),
       timestamp: Date.now(),
-      bufferStats: this.bufferMetrics$.value,
-      subscriptionStats: this.getSubscriptionMetrics(),
-      memoryStats: this.getMemoryMetrics(),
-      timeoutStats: this.getTimeoutMetrics(),
-      circuitBreakerStats: this.getCircuitBreakerStats(),
-      droppedEvents: this.droppedEventCount,
     };
 
-    this.metrics$.next(metrics);
+    this.systemMetricsSubject.next(systemMetrics);
   }
 
-  getMetrics(): Observable<Record<string, unknown>> {
-    return this.metrics$.asObservable();
+  /**
+   * Calculate average latency from history
+   */
+  private calculateAverageLatency(): number {
+    if (this.latencyHistory.length === 0) return 0;
+    return this.latencyHistory.reduce((sum, lat) => sum + lat, 0) / this.latencyHistory.length;
   }
 
-  getBufferMetrics(): Observable<{ size: number; maxSize: number; dropped: number }> {
-    return this.bufferMetrics$.asObservable();
+  /**
+   * Calculate percentile latency
+   */
+  private calculatePercentileLatency(percentile: number): number {
+    if (this.latencyHistory.length === 0) return 0;
+
+    const sorted = [...this.latencyHistory].sort((a, b) => a - b);
+    const index = Math.ceil((percentile / 100) * sorted.length) - 1;
+    return sorted[Math.max(0, index)];
   }
 
-  updateBufferMetrics(size: number, maxSize?: number, dropped?: number): void {
-    const current = this.bufferMetrics$.value;
-    this.bufferMetrics$.next({
-      size,
-      maxSize: maxSize ?? current.maxSize,
-      dropped: dropped ?? current.dropped,
-    });
+  /**
+   * Get memory pressure indicator
+   */
+  private getMemoryPressure(): number {
+    const memoryUsage = process.memoryUsage();
+    const used = memoryUsage.heapUsed;
+    const total = memoryUsage.heapTotal;
+    return (used / total) * 100;
   }
 
-  incrementDroppedEvents(): void {
-    this.droppedEventCount++;
-    const current = this.bufferMetrics$.value;
-    this.bufferMetrics$.next({
-      ...current,
-      dropped: current.dropped + 1,
-    });
+  /**
+   * Get CPU usage (simplified)
+   */
+  private getCpuUsage(): number {
+    const cpuUsage = process.cpuUsage();
+    // Simplified CPU usage calculation
+    return (cpuUsage.user + cpuUsage.system) / 10000; // Convert to percentage approximation
   }
 
-  getSubscriptionMetrics(): {
-    total: number;
-    byContext: Record<string, number>;
-    averageAge: number;
-    oldestSubscription: number;
+  /**
+   * Calculate overall health status
+   */
+  private calculateHealthStatus(
+    events: EventStats,
+    streams: StreamMetrics,
+    isolation: HandlerIsolationMetrics,
+    errorRate: number,
+  ): {
+    healthy: boolean;
+    score: number;
+    lastCheck: number;
+    alerts: readonly string[];
   } {
-    const subscriptions = Array.from(this.subscriptionMetadata.values());
-    const now = Date.now();
+    const alerts: string[] = [];
+    let score = 100;
 
-    const byContext: Record<string, number> = {};
-    let totalAge = 0;
-    let oldestAge = 0;
+    // Check error rate
+    if (errorRate > 10) {
+      alerts.push(`High error rate: ${errorRate.toFixed(1)}%`);
+      score -= 20;
+    } else if (errorRate > 5) {
+      alerts.push(`Elevated error rate: ${errorRate.toFixed(1)}%`);
+      score -= 10;
+    }
 
-    subscriptions.forEach((meta) => {
-      const context = meta.context || 'unknown';
-      byContext[context] = (byContext[context] || 0) + 1;
+    // Check buffer pressure
+    if (streams.backpressureActive) {
+      alerts.push('Backpressure active');
+      score -= 15;
+    }
 
-      const age = now - meta.createdAt;
-      totalAge += age;
-      oldestAge = Math.max(oldestAge, age);
-    });
+    // Check memory pressure
+    const memoryPressure = this.getMemoryPressure();
+    if (memoryPressure > 90) {
+      alerts.push('Critical memory usage');
+      score -= 25;
+    } else if (memoryPressure > 75) {
+      alerts.push('High memory usage');
+      score -= 10;
+    }
+
+    // Check circuit breakers
+    const openCircuitBreakers = Object.values(isolation.circuitBreakerStates).filter((state) => state === CircuitBreakerState.OPEN).length;
+
+    if (openCircuitBreakers > 0) {
+      alerts.push(`${openCircuitBreakers} circuit breaker(s) open`);
+      score -= openCircuitBreakers * 5;
+    }
+
+    // Check processing backlog
+    if (events.currentlyProcessing > 100) {
+      alerts.push('High processing backlog');
+      score -= 10;
+    }
 
     return {
-      total: subscriptions.length,
-      byContext,
-      averageAge: subscriptions.length > 0 ? totalAge / subscriptions.length : 0,
-      oldestSubscription: oldestAge,
+      healthy: score > 70 && alerts.length === 0,
+      score: Math.max(0, score),
+      lastCheck: Date.now(),
+      alerts,
     };
   }
 
-  getMemoryMetrics(): {
-    subscriptionCount: number;
-    metadataMapSize: number;
-    timeoutMetricsSize: number;
-    circuitBreakerCount: number;
-    estimatedMemoryUsage: number;
-  } {
-    const subscriptionCount = this.subscriptionMetadata.size;
-    const metadataMapSize = this.subscriptionMetadata.size;
-    const timeoutMetricsSize = this.timeoutMetrics.size;
-    const circuitBreakerCount = this.circuitBreakers.size;
-
-    // Rough estimate of memory usage (in bytes)
-    const estimatedMemoryUsage =
-      subscriptionCount * 200 + // Rough estimate per subscription
-      metadataMapSize * 150 + // Metadata overhead
-      timeoutMetricsSize * 100 + // Timeout metrics
-      circuitBreakerCount * 80; // Circuit breaker metrics
-
+  /**
+   * Get detailed health checks
+   */
+  private getHealthChecks(metrics: SystemMetrics): Record<string, boolean> {
     return {
-      subscriptionCount,
-      metadataMapSize,
-      timeoutMetricsSize,
-      circuitBreakerCount,
-      estimatedMemoryUsage,
+      eventProcessing: metrics.system.errorRate < 5,
+      memoryUsage: metrics.system.memoryUsage < 512, // Less than 512MB
+      bufferHealth: !metrics.streams.backpressureActive,
+      circuitBreakers: Object.values(metrics.isolation.circuitBreakerStates).every((state) => state !== CircuitBreakerState.OPEN),
+      processingBacklog: metrics.events.currentlyProcessing < 50,
+      throughput: metrics.streams.throughput.eventsPerSecond > 0,
     };
   }
 
-  getErrorRecoveryMetrics(): Observable<ErrorRecoveryMetrics> {
-    return this.errorRecoveryMetrics$.asObservable();
-  }
+  /**
+   * Perform periodic health check
+   */
+  private performHealthCheck(): void {
+    const currentMetrics = this.systemMetricsSubject.value;
 
-  updateErrorRecoveryMetrics(update: Partial<ErrorRecoveryMetrics>): void {
-    const current = this.errorRecoveryMetrics$.value;
-    this.errorRecoveryMetrics$.next({
-      ...current,
-      ...update,
-    });
-  }
-
-  getTimeoutMetrics(): Record<
-    string,
-    {
-      totalExecutions: number;
-      timeouts: number;
-      successes: number;
-      averageExecutionTime: number;
-      timeoutRate: number;
-      lastTimeout?: number;
-    }
-  > {
-    const result: Record<string, any> = {};
-
-    for (const [handlerId, metrics] of this.timeoutMetrics.entries()) {
-      result[handlerId] = {
-        ...metrics,
-        timeoutRate: metrics.totalExecutions > 0 ? metrics.timeouts / metrics.totalExecutions : 0,
-      };
-    }
-
-    return result;
-  }
-
-  recordHandlerExecution(handlerId: string, executionTime: number, timedOut: boolean = false): void {
-    let metrics = this.timeoutMetrics.get(handlerId);
-    if (!metrics) {
-      metrics = {
-        totalExecutions: 0,
-        timeouts: 0,
-        successes: 0,
-        averageExecutionTime: 0,
-        lastTimeout: undefined,
-      };
-      this.timeoutMetrics.set(handlerId, metrics);
-    }
-
-    metrics.totalExecutions++;
-
-    if (timedOut) {
-      metrics.timeouts++;
-      metrics.lastTimeout = Date.now();
-    } else {
-      metrics.successes++;
-      metrics.averageExecutionTime = (metrics.averageExecutionTime + executionTime) / 2;
-    }
-  }
-
-  resetTimeoutMetrics(handlerId?: string): void {
-    if (handlerId) {
-      this.timeoutMetrics.delete(handlerId);
-    } else {
-      this.timeoutMetrics.clear();
-    }
-  }
-
-  getCircuitBreakerStats(): Record<string, CircuitBreakerMetrics> {
-    const stats: Record<string, CircuitBreakerMetrics> = {};
-    for (const [context, metrics] of this.circuitBreakers.entries()) {
-      stats[context] = { ...metrics };
-    }
-    return stats;
-  }
-
-  getCircuitBreakerState(context: string): CircuitBreakerMetrics | undefined {
-    return this.circuitBreakers.get(context);
-  }
-
-  updateCircuitBreakerState(context: string, metrics: CircuitBreakerMetrics): void {
-    this.circuitBreakers.set(context, metrics);
-  }
-
-  resetCircuitBreaker(context: string): void {
-    const metrics = this.circuitBreakers.get(context);
-    if (metrics) {
-      metrics.state = CircuitBreakerState.CLOSED;
-      metrics.failureCount = 0;
-      metrics.lastFailureTime = undefined;
-      metrics.lastSuccessTime = Date.now();
-    }
-  }
-
-  trackSubscription(subscription: Subscription, name: string = 'unnamed', context?: string): Subscription {
-    const metadata = {
-      name,
-      createdAt: Date.now(),
-      context,
-      cleanupCallbacks: [] as (() => void)[],
-    };
-
-    this.subscriptionMetadata.set(subscription, metadata);
-
-    const cleanup = () => {
-      try {
-        metadata.cleanupCallbacks.forEach((callback) => {
-          try {
-            callback();
-          } catch (error) {
-            this.logger.warn(`Error in subscription cleanup callback for ${name}:`, error);
-          }
-        });
-
-        this.subscriptionMetadata.delete(subscription);
-        this.logger.debug(`Subscription ${name} cleaned up after ${Date.now() - metadata.createdAt}ms`);
-      } catch (error) {
-        this.logger.error(`Error during subscription cleanup for ${name}:`, error);
-      }
-    };
-
-    subscription.add(cleanup);
-    return subscription;
-  }
-
-  forceMemoryCleanup(): {
-    subscriptionsRemoved: number;
-    metadataCleared: number;
-    timeoutMetricsCleared: number;
-    memoryFreed: number;
-  } {
-    const initialSubscriptions = this.subscriptionMetadata.size;
-    const initialTimeoutMetrics = this.timeoutMetrics.size;
-    const initialMemory = this.getMemoryMetrics().estimatedMemoryUsage;
-
-    // Clear stale subscriptions (older than 1 hour)
-    const oneHourAgo = Date.now() - 60 * 60 * 1000;
-    let staleCleaned = 0;
-
-    for (const [subscription, metadata] of this.subscriptionMetadata.entries()) {
-      if (metadata.createdAt < oneHourAgo && subscription.closed) {
-        this.subscriptionMetadata.delete(subscription);
-        staleCleaned++;
-      }
-    }
-
-    // Clear old timeout metrics (keep only last 100 handlers)
-    const timeoutEntries = Array.from(this.timeoutMetrics.entries());
-    if (timeoutEntries.length > 100) {
-      const toRemove = timeoutEntries.slice(0, timeoutEntries.length - 100);
-      toRemove.forEach(([handlerId]) => {
-        this.timeoutMetrics.delete(handlerId);
+    // Log health status
+    if (!currentMetrics.health.healthy) {
+      this.logger.warn(`System health degraded: Score ${currentMetrics.health.score}/100`, {
+        alerts: currentMetrics.health.alerts,
       });
     }
 
-    const finalMemory = this.getMemoryMetrics().estimatedMemoryUsage;
+    // Check for critical conditions
+    if (currentMetrics.health.score < 50) {
+      this.logger.error('Critical system health detected', {
+        score: currentMetrics.health.score,
+        alerts: currentMetrics.health.alerts,
+      });
+    }
+  }
+
+  /**
+   * Export metrics for external monitoring systems
+   */
+  exportMetrics(): Record<string, unknown> {
+    const metrics = this.systemMetricsSubject.value;
 
     return {
-      subscriptionsRemoved: staleCleaned,
-      metadataCleared: initialSubscriptions - this.subscriptionMetadata.size,
-      timeoutMetricsCleared: initialTimeoutMetrics - this.timeoutMetrics.size,
-      memoryFreed: initialMemory - finalMemory,
+      // Prometheus-style metrics
+      event_emitter_events_total: metrics.events.totalEmitted,
+      event_emitter_events_processed: metrics.events.totalProcessed,
+      event_emitter_events_failed: metrics.events.totalFailed,
+      event_emitter_events_processing: metrics.events.currentlyProcessing,
+      event_emitter_processing_duration_seconds: metrics.events.averageProcessingTime / 1000,
+      event_emitter_buffer_size: metrics.streams.bufferSize,
+      event_emitter_buffer_max: metrics.streams.maxBufferSize,
+      event_emitter_dropped_events: metrics.streams.droppedEvents,
+      event_emitter_throughput_events_per_second: metrics.streams.throughput.eventsPerSecond,
+      event_emitter_memory_usage_mb: metrics.system.memoryUsage,
+      event_emitter_cpu_usage_percent: metrics.system.cpuUsage,
+      event_emitter_health_score: metrics.health.score,
+      event_emitter_healthy: metrics.health.healthy ? 1 : 0,
+      event_emitter_uptime_seconds: metrics.system.uptime / 1000,
     };
   }
 
+  /**
+   * Reset all metrics
+   */
+  resetMetrics(): void {
+    this.eventStatsSubject.next({
+      totalEmitted: 0,
+      totalProcessed: 0,
+      totalFailed: 0,
+      averageProcessingTime: 0,
+      lastEmittedAt: undefined,
+      lastProcessedAt: undefined,
+      currentlyProcessing: 0,
+      retrying: 0,
+      deadLettered: 0,
+    });
+
+    this.streamMetricsSubject.next({
+      bufferSize: 0,
+      maxBufferSize: 1000,
+      droppedEvents: 0,
+      warningThreshold: 800,
+      backpressureActive: false,
+      throughput: {
+        eventsPerSecond: 0,
+        averageLatency: 0,
+        p95Latency: 0,
+        p99Latency: 0,
+        maxLatency: 0,
+      },
+      health: {
+        healthy: true,
+        memoryPressure: 0,
+        cpuUsage: 0,
+        lastCheckAt: Date.now(),
+      },
+    });
+
+    this.handlerStatsSubject.next({});
+
+    this.latencyHistory.length = 0;
+    this.eventRateHistory.length = 0;
+    this.alertHistory.length = 0;
+
+    this.startTime = Date.now();
+
+    this.logger.debug('Metrics reset');
+  }
+
+  /**
+   * Cleanup metrics service
+   */
   cleanup(): void {
     if (this.metricsInterval) {
-      clearInterval(this.metricsInterval);
-      this.metricsInterval = undefined;
+      this.metricsInterval.unsubscribe();
     }
 
-    this.subscriptionMetadata.clear();
-    this.timeoutMetrics.clear();
-    this.circuitBreakers.clear();
-    this.droppedEventCount = 0;
+    if (this.healthCheckInterval) {
+      this.healthCheckInterval.unsubscribe();
+    }
 
-    this.logger.debug('Metrics service cleaned up');
+    // Complete all subjects
+    this.eventStatsSubject.complete();
+    this.streamMetricsSubject.complete();
+    this.handlerStatsSubject.complete();
+    this.isolationMetricsSubject.complete();
+    this.systemMetricsSubject.complete();
+
+    this.logger.debug('Metrics service cleanup completed');
   }
 }
