@@ -11,6 +11,10 @@ export enum IsolationStrategy {
   PER_EVENT_TYPE = 'per-event-type',
   /** All handlers share same context */
   SHARED = 'shared',
+  /** Isolated execution context */
+  ISOLATED = 'isolated',
+  /** Tenant-specific isolation */
+  TENANT_ISOLATED = 'tenant_isolated',
 }
 
 /**
@@ -120,6 +124,14 @@ export interface HandlerMetadata {
   readonly executionCount?: number;
   /** Average execution time */
   readonly averageExecutionTime?: number;
+  /** Handler dependencies */
+  readonly dependencies?: string[];
+  /** Tags for categorization */
+  readonly tags?: string[];
+  /** Handler version */
+  readonly version?: string;
+  /** Handler description */
+  readonly description?: string;
 }
 
 /**
@@ -189,7 +201,7 @@ export interface ExecutionResult {
 /**
  * Handler execution pool for isolation and concurrency
  */
-export interface HandlerPool {
+export interface HandlerExecutionPool {
   /** Isolation context identifier */
   readonly isolationContext: string;
   /** Concurrency limit */
@@ -232,40 +244,40 @@ export interface HandlerPool {
  * Handler performance statistics
  */
 export interface HandlerStats {
-  /** Execution statistics */
-  readonly execution: {
-    readonly totalExecutions: number;
-    readonly successfulExecutions: number;
-    readonly failedExecutions: number;
-    readonly averageExecutionTime: number;
-    readonly minExecutionTime: number;
-    readonly maxExecutionTime: number;
-    readonly timeouts: number;
-    readonly lastExecution?: number;
-  };
-  /** Circuit breaker statistics */
-  readonly circuitBreaker: {
-    readonly state: CircuitBreakerState;
-    readonly failures: number;
-    readonly lastFailure?: number;
-    readonly nextAttempt?: number;
-    readonly successRate: number;
-  };
-  /** Timeout statistics */
-  readonly timeout: {
-    readonly totalExecutions: number;
-    readonly timeouts: number;
-    readonly successes: number;
-    readonly averageExecutionTime: number;
-    readonly lastTimeout?: number;
-  };
-  /** Resource usage statistics */
-  readonly resource: {
-    readonly memoryUsage: number;
-    readonly cpuTime: number;
-    readonly isolationLevel: string;
-    readonly poolUtilization: number;
-  };
+  /** Total executions */
+  readonly totalExecutions: number;
+  /** Successful executions */
+  readonly successfulExecutions: number;
+  /** Failed executions */
+  readonly failedExecutions: number;
+  /** Average execution time */
+  readonly averageExecutionTime: number;
+  /** Minimum execution time */
+  readonly minExecutionTime: number;
+  /** Maximum execution time */
+  readonly maxExecutionTime: number;
+  /** Number of timeouts */
+  readonly timeouts: number;
+  /** Last execution timestamp */
+  readonly lastExecution?: number;
+  /** Success rate percentage */
+  readonly successRate: number;
+  /** Error distribution */
+  readonly errorDistribution: Record<string, number>;
+  /** Circuit breaker state */
+  readonly circuitBreakerState: CircuitBreakerState;
+  /** Circuit breaker failure count */
+  readonly circuitBreakerFailures: number;
+  /** Last circuit breaker failure time */
+  readonly circuitBreakerLastFailure?: number;
+  /** Memory usage in MB */
+  readonly memoryUsage: number;
+  /** CPU time used */
+  readonly cpuTime: number;
+  /** Isolation level */
+  readonly isolationLevel: string;
+  /** Pool utilization percentage */
+  readonly poolUtilization: number;
 }
 
 /**
@@ -330,5 +342,5 @@ export interface HandlerExecutionService {
   /**
    * Get handler pool information
    */
-  getPoolInfo(isolationContext: string): HandlerPool | undefined;
+  getPoolInfo(isolationContext: string): HandlerExecutionPool | undefined;
 }

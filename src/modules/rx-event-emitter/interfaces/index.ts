@@ -1,44 +1,142 @@
 // =============================================================================
-// CORE INTERFACES - Event fundamentals
+// CORE INTERFACES - Event fundamentals  
 // =============================================================================
 
-export * from './core.interfaces';
+export { 
+  EventStatus, 
+  EventPriority, 
+  EventMetadata, 
+  Event, 
+  EmitOptions, 
+  EventStats, 
+  StreamMetrics, 
+  EventFactory, 
+  EventValidationResult, 
+  EventValidator, 
+  CircuitBreakerMetrics, 
+  HandlerPoolConfig, 
+  HandlerPoolMetrics, 
+  HandlerPool 
+} from './core.interfaces';
 
 // =============================================================================
 // HANDLER INTERFACES - Handler execution and management
 // =============================================================================
 
-export * from './handler.interfaces';
+export { 
+  IsolationStrategy, 
+  TimeoutStrategy, 
+  CircuitBreakerState, 
+  ResourceIsolation, 
+  HandlerOptions, 
+  HandlerMetadata, 
+  RegisteredHandler, 
+  HandlerExecutionContext, 
+  ExecutionResult, 
+  HandlerStats, 
+  HandlerExecutionPool,
+  HandlerRegistry 
+} from './handler.interfaces';
 
 // =============================================================================
 // CONFIGURATION INTERFACES - Type-safe configuration
 // =============================================================================
 
-export * from './configuration.interfaces';
+export { 
+  BackpressureStrategy, 
+  BackpressureConfig, 
+  FaultToleranceMode, 
+  ErrorRecoveryConfig, 
+  IsolationLevel, 
+  HandlerExecutionConfig, 
+  CacheStrategy, 
+  HandlerDiscoveryConfig, 
+  ValidationConfig, 
+  ShardingStrategy, 
+  IndexingStrategy, 
+  PersistenceConfig, 
+  DeadLetterQueueConfig, 
+  MonitoringConfig, 
+  TenantIsolationConfig, 
+  EventEmitterOptions, 
+  ModuleConfig, 
+  ConfigurationValidationResult, 
+  ConfigurationValidator 
+} from './configuration.interfaces';
 
 // =============================================================================
 // PERSISTENCE INTERFACES - Event storage and retrieval
 // =============================================================================
 
-export * from './persistence.interfaces';
+export { 
+  PersistenceAdapter, 
+  AsyncPersistenceAdapter, 
+  Transaction, 
+  TransactionOperation, 
+  PersistenceStats, 
+  BackupResult, 
+  RestoreResult, 
+  HealthCheckResult, 
+  EventQuery, 
+  QueryResult,
+  InMemoryAdapterConfig,
+  RedisAdapterConfig,
+  DatabaseAdapterConfig,
+  FileSystemAdapterConfig,
+  S3AdapterConfig,
+  AzureBlobAdapterConfig,
+  GCSAdapterConfig
+} from './persistence.interfaces';
 
 // =============================================================================
 // DISCOVERY INTERFACES - Handler discovery and dependency management
 // =============================================================================
 
-export * from './discovery.interfaces';
+export { 
+  DiscoveryCache, 
+  DiscoveryMetrics, 
+  PriorityConflict, 
+  PriorityValidationResult, 
+  HandlerPriorityMap, 
+  CircularDependency, 
+  DependencyGraph, 
+  DependencyNode, 
+  DependencyEdge, 
+  HandlerIsolationMetrics,
+  PriorityValidationError,
+  ValidationError,
+  DiscoveryProfile,
+  ValidationRules,
+  OptimizationHint,
+  DiscoveryBatch,
+  BatchProcessingResult
+} from './discovery.interfaces';
 
 // =============================================================================
 // DEAD LETTER QUEUE INTERFACES - Failed event handling
 // =============================================================================
 
-export * from './dead-letter-queue.interfaces';
+export { 
+  DLQEntry, 
+  RetryPolicy, 
+  RetryCondition, 
+  DLQMetrics, 
+  PolicyStats, 
+  DLQConfig, 
+  DeadLetterQueueService 
+} from './dead-letter-queue.interfaces';
 
 // =============================================================================
 // POOL INTERFACES - Handler pools and isolation
 // =============================================================================
 
-export * from './pool.interfaces';
+export { 
+  PoolExecutionContext, 
+  PoolExecutionResult, 
+  PoolMetrics, 
+  ResourceUsageMetrics, 
+  IsolationMetrics 
+} from './pool.interfaces';
 
 // =============================================================================
 // DEPENDENCY INJECTION TOKENS
@@ -52,12 +150,3 @@ export const EVENT_HANDLER_METADATA = Symbol('EVENT_HANDLER_METADATA');
 
 /** Metadata key for handler configuration */
 export const EVENT_HANDLER_OPTIONS = Symbol('EVENT_HANDLER_OPTIONS');
-
-// =============================================================================
-// RE-EXPORT IMPORTANT ENUMS FOR CONVENIENCE
-// =============================================================================
-
-// Re-export key enums that are commonly used
-export { EventStatus, EventPriority } from './core.interfaces';
-export { CircuitBreakerState, IsolationStrategy, TimeoutStrategy, ResourceIsolation } from './handler.interfaces';
-export { BackpressureStrategy, FaultToleranceMode, IsolationLevel, CacheStrategy, ShardingStrategy, IndexingStrategy } from './configuration.interfaces';

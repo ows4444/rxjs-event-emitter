@@ -3,32 +3,15 @@
  */
 
 import type { Event } from './core.interfaces';
-
-/**
- * Handler isolation metrics
- */
-export interface HandlerIsolationMetrics {
-  /** Total number of pools */
-  readonly totalPools: number;
-  /** Active pools */
-  readonly activePools: number;
-  /** Total active executions across all pools */
-  readonly totalActiveExecutions: number;
-  /** Total queued tasks across all pools */
-  readonly totalQueuedTasks: number;
-  /** Total dropped tasks */
-  readonly totalDroppedTasks: number;
-  /** Average pool utilization */
-  readonly averagePoolUtilization: number;
-  /** Circuit breaker states by pool */
-  readonly circuitBreakerStates: Record<string, string>;
-  /** Individual pool metrics */
-  readonly poolMetrics: Map<string, PoolMetrics>;
-  /** Resource usage metrics */
-  readonly resourceUsage: ResourceUsageMetrics;
-  /** Isolation effectiveness metrics */
-  readonly isolation: IsolationMetrics;
-}
+import type { 
+  RegisteredHandler, 
+  HandlerMetadata, 
+  HandlerOptions, 
+  HandlerStats, 
+  HandlerExecutionContext, 
+  ExecutionResult 
+} from './handler.interfaces';
+import type { HandlerIsolationMetrics } from './discovery.interfaces';
 
 /**
  * Individual pool metrics
@@ -58,6 +41,18 @@ export interface PoolMetrics {
   readonly memoryUsage: number;
   /** Last activity timestamp */
   readonly lastActivityAt: number;
+  /** Throughput in tasks/second */
+  readonly throughput: number;
+  /** Error rate percentage */
+  readonly errorRate: number;
+  /** Average task wait time */
+  readonly averageWaitTime: number;
+  /** Current queue depth */
+  readonly queueDepth: number;
+  /** Pool health score */
+  readonly healthScore: number;
+  /** Resource efficiency */
+  readonly efficiency: number;
 }
 
 /**
@@ -97,141 +92,21 @@ export interface IsolationMetrics {
 }
 
 /**
- * Handler execution context
+ * Pool-specific execution context (extends base context)
  */
-export interface HandlerExecutionContext {
-  /** Event being processed */
-  readonly event: Event;
-  /** Handler metadata */
-  readonly handler: RegisteredHandler;
+export interface PoolExecutionContext extends HandlerExecutionContext {
   /** Pool name */
   readonly poolName: string;
-  /** Correlation ID for tracing */
-  readonly correlationId: string;
-  /** Start timestamp */
-  readonly startedAt: number;
   /** Timeout timestamp */
   readonly timeoutAt: number;
-  /** Attempt number */
-  readonly attempt: number;
-  /** Context metadata */
-  readonly metadata: Record<string, unknown>;
 }
 
 /**
- * Handler execution result
+ * Pool-specific execution result (extends base result)
  */
-export interface ExecutionResult {
-  /** Execution success */
-  readonly success: boolean;
-  /** Execution duration */
-  readonly duration: number;
-  /** Result data */
-  readonly result?: unknown;
-  /** Error if failed */
-  readonly error?: Error;
-  /** Whether retry is needed */
-  readonly needsRetry: boolean;
+export interface PoolExecutionResult extends ExecutionResult {
   /** Memory used during execution */
   readonly memoryUsed?: number;
   /** CPU time used */
   readonly cpuTimeUsed?: number;
-}
-
-/**
- * Registered handler with enhanced metadata
- */
-export interface RegisteredHandler {
-  /** Handler function */
-  readonly handler: (event: Event) => Promise<void>;
-  /** Handler metadata */
-  readonly metadata: HandlerMetadata;
-  /** Instance reference */
-  readonly instance: object;
-  /** Method name */
-  readonly methodName: string;
-  /** Pool assignment */
-  readonly poolName: string;
-  /** Priority */
-  readonly priority: number;
-  /** Registration timestamp */
-  readonly registeredAt: number;
-  /** Handler statistics */
-  readonly stats: HandlerStats;
-}
-
-/**
- * Handler metadata
- */
-export interface HandlerMetadata {
-  /** Event name */
-  readonly eventName: string;
-  /** Handler options */
-  readonly options: HandlerOptions;
-  /** Dependencies */
-  readonly dependencies?: string[];
-  /** Tags for categorization */
-  readonly tags?: string[];
-  /** Handler version */
-  readonly version?: string;
-  /** Handler description */
-  readonly description?: string;
-}
-
-/**
- * Handler statistics
- */
-export interface HandlerStats {
-  /** Total executions */
-  readonly totalExecutions: number;
-  /** Successful executions */
-  readonly successfulExecutions: number;
-  /** Failed executions */
-  readonly failedExecutions: number;
-  /** Average execution time */
-  readonly averageExecutionTime: number;
-  /** Maximum execution time */
-  readonly maxExecutionTime: number;
-  /** Last execution timestamp */
-  readonly lastExecutionAt?: number;
-  /** Success rate */
-  readonly successRate: number;
-  /** Error distribution */
-  readonly errorDistribution: Record<string, number>;
-}
-
-/**
- * Handler options (enhanced from original)
- */
-export interface HandlerOptions {
-  /** Handler priority */
-  readonly priority?: number;
-  /** Timeout in milliseconds */
-  readonly timeout?: number;
-  /** Maximum retry attempts */
-  readonly maxRetries?: number;
-  /** Retry policy */
-  readonly retryPolicy?: string;
-  /** Pool assignment */
-  readonly pool?: string;
-  /** Isolation level */
-  readonly isolation?: 'shared' | 'isolated' | 'tenant';
-  /** Circuit breaker configuration */
-  readonly circuitBreaker?: {
-    readonly enabled: boolean;
-    readonly failureThreshold: number;
-    readonly recoveryTimeout: number;
-  };
-  /** Rate limiting */
-  readonly rateLimit?: {
-    readonly enabled: boolean;
-    readonly maxPerSecond: number;
-    readonly burstSize: number;
-  };
-  /** Metrics collection */
-  readonly metrics?: {
-    readonly enabled: boolean;
-    readonly trackMemory: boolean;
-    readonly trackCpu: boolean;
-  };
 }

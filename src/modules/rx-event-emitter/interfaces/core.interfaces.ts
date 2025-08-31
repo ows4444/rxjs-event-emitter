@@ -1,3 +1,5 @@
+import type { CircuitBreakerState, IsolationStrategy } from './handler.interfaces';
+
 /**
  * Event processing status
  */
@@ -198,15 +200,6 @@ export interface EventValidator {
 }
 
 /**
- * Circuit breaker states
- */
-export enum CircuitBreakerState {
-  CLOSED = 'closed',
-  OPEN = 'open',
-  HALF_OPEN = 'half_open',
-}
-
-/**
  * Circuit breaker metrics
  */
 export interface CircuitBreakerMetrics {
@@ -246,15 +239,6 @@ export interface HandlerPoolConfig {
   readonly isolation: IsolationStrategy;
   /** Pool name for metrics */
   readonly name: string;
-}
-
-/**
- * Isolation strategies for handler pools
- */
-export enum IsolationStrategy {
-  SHARED = 'shared',
-  ISOLATED = 'isolated',
-  TENANT_ISOLATED = 'tenant_isolated',
 }
 
 /**
