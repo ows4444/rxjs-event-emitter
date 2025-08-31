@@ -1,4 +1,5 @@
 {
+  "displayName": "RxJS Event Emitter - Base Configuration",
   "preset": "ts-jest",
   "testEnvironment": "node",
   "rootDir": "../",
@@ -9,15 +10,44 @@
     "src/**/*.ts",
     "!src/**/*.spec.ts",
     "!src/**/*.interface.ts",
-    "!src/**/index.ts"
+    "!src/**/*.d.ts",
+    "!src/**/index.ts",
+    "!src/**/main.ts"
   ],
-  "coverageReporters": ["text", "lcov", "html", "json-summary"],
+  "coverageReporters": ["text", "lcov", "html", "json-summary", "cobertura"],
+  "coveragePathIgnorePatterns": [
+    "node_modules",
+    "dist",
+    "coverage",
+    ".eslintrc.js",
+    "jest.config.js"
+  ],
+  "testPathIgnorePatterns": [
+    "<rootDir>/node_modules/",
+    "<rootDir>/dist/",
+    "<rootDir>/coverage/"
+  ],
   "detectOpenHandles": true,
   "forceExit": true,
   "testTimeout": 10000,
+  "maxWorkers": 1,
+  "bail": false,
+  "verbose": true,
+  "errorOnDeprecated": true,
+  "clearMocks": true,
+  "resetMocks": true,
+  "restoreMocks": true,
   "moduleNameMapper": {
     "^@src/(.*)$": "<rootDir>/src/$1",
     "^@modules/(.*)$": "<rootDir>/src/modules/$1",
     "^@test/(.*)$": "<rootDir>/test/$1"
+  },
+  "transform": {
+    "^.+\\.(t|j)s$": "ts-jest"
+  },
+  "globals": {
+    "ts-jest": {
+      "tsconfig": "tsconfig.json"
+    }
   }
 }

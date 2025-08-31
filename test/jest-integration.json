@@ -1,14 +1,52 @@
 {
-  "preset": "./jest.config.json",
-  "testMatch": ["<rootDir>/test/integration/**/*.int-spec.ts"],
+  "displayName": "Integration Tests - Service Workflows",
+  "preset": "ts-jest",
+  "testEnvironment": "node",
+  "rootDir": "../",
+  "testMatch": [
+    "<rootDir>/test/integration/**/*.int-spec.ts"
+  ],
+  "setupFilesAfterEnv": [
+    "<rootDir>/test/setup.ts"
+  ],
   "coverageDirectory": "<rootDir>/coverage/integration",
+  "collectCoverageFrom": [
+    "src/modules/rx-event-emitter/**/*.ts",
+    "!src/**/*.spec.ts",
+    "!src/**/*.interface.ts",
+    "!src/**/*.d.ts",
+    "!src/**/index.ts",
+    "!src/**/main.ts"
+  ],
+  "coverageReporters": ["text", "lcov", "html", "json-summary"],
   "coverageThreshold": {
     "global": {
       "branches": 75,
       "functions": 80,
       "lines": 80,
       "statements": 80
+    },
+    "src/modules/rx-event-emitter/services/": {
+      "branches": 70,
+      "functions": 75,
+      "lines": 75,
+      "statements": 75
     }
   },
-  "testTimeout": 10000
+  "testTimeout": 10000,
+  "maxWorkers": 1,
+  "detectOpenHandles": true,
+  "forceExit": false,
+  "clearMocks": true,
+  "resetMocks": true,
+  "restoreMocks": true,
+  "verbose": true,
+  "moduleNameMapper": {
+    "^@src/(.*)$": "<rootDir>/src/$1",
+    "^@modules/(.*)$": "<rootDir>/src/modules/$1",
+    "^@test/(.*)$": "<rootDir>/test/$1"
+  },
+  "transform": {
+    "^.+\\.(t|j)s$": "ts-jest"
+  }
 }

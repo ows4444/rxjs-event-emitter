@@ -1,14 +1,59 @@
 {
-  "preset": "./jest.config.json",
-  "testMatch": ["<rootDir>/test/unit/**/*.spec.ts", "<rootDir>/src/**/*.spec.ts"],
+  "displayName": "Unit Tests - Service Isolation",
+  "preset": "ts-jest",
+  "testEnvironment": "node",
+  "rootDir": "../",
+  "testMatch": [
+    "<rootDir>/test/unit/**/*.spec.ts",
+    "<rootDir>/src/**/*.spec.ts"
+  ],
+  "setupFilesAfterEnv": [
+    "<rootDir>/test/setup.ts"
+  ],
   "coverageDirectory": "<rootDir>/coverage/unit",
+  "collectCoverageFrom": [
+    "src/modules/rx-event-emitter/services/**/*.ts",
+    "src/modules/rx-event-emitter/interfaces/**/*.ts",
+    "src/modules/rx-event-emitter/decorators/**/*.ts",
+    "src/modules/rx-event-emitter/adapters/**/*.ts",
+    "!src/**/*.spec.ts",
+    "!src/**/*.interface.ts",
+    "!src/**/*.d.ts",
+    "!src/**/index.ts"
+  ],
+  "coverageReporters": ["text", "lcov", "html", "json-summary"],
   "coverageThreshold": {
     "global": {
       "branches": 80,
       "functions": 85,
       "lines": 85,
       "statements": 85
+    },
+    "src/modules/rx-event-emitter/services/event-emitter.service.ts": {
+      "branches": 85,
+      "functions": 90,
+      "lines": 90,
+      "statements": 90
+    },
+    "src/modules/rx-event-emitter/services/handler-discovery.service.ts": {
+      "branches": 85,
+      "functions": 90,
+      "lines": 90,
+      "statements": 90
     }
   },
-  "testTimeout": 5000
+  "testTimeout": 5000,
+  "maxWorkers": 1,
+  "clearMocks": true,
+  "resetMocks": true,
+  "restoreMocks": true,
+  "verbose": true,
+  "moduleNameMapper": {
+    "^@src/(.*)$": "<rootDir>/src/$1",
+    "^@modules/(.*)$": "<rootDir>/src/modules/$1",
+    "^@test/(.*)$": "<rootDir>/test/$1"
+  },
+  "transform": {
+    "^.+\\.(t|j)s$": "ts-jest"
+  }
 }

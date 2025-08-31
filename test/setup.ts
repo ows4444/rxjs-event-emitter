@@ -3,7 +3,7 @@ import { config } from 'dotenv';
 config({ path: '.env.test' });
 
 import { Logger } from '@nestjs/common';
-Logger.overrideLogger(['error']);
+Logger.overrideLogger([]);
 
 beforeAll(async () => {
   jest.clearAllMocks();
