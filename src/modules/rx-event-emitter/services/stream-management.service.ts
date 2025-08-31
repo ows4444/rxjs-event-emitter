@@ -159,7 +159,7 @@ export class StreamManagementService implements OnModuleInit, OnModuleDestroy {
   private readonly managedStreams = new Map<string, ManagedStream>();
   private readonly streamHealth = new Map<string, StreamHealth>();
 
-  private readonly metrics$ = new BehaviorSubject<StreamMetrics>(this.createInitialMetrics());
+  private readonly metrics$: BehaviorSubject<StreamMetrics>;
   private readonly streamUpdates$ = new Subject<{ action: 'created' | 'destroyed' | 'error'; streamId: string; details?: unknown }>();
 
   private metricsTimer?: NodeJS.Timeout;
@@ -172,7 +172,8 @@ export class StreamManagementService implements OnModuleInit, OnModuleDestroy {
   private totalErrors = 0;
 
   constructor(@Optional() @Inject(EVENT_EMITTER_OPTIONS) private readonly options: Record<string, unknown> = {}) {
-    this.config = {
+    // Create default configuration
+    const defaultConfig: Required<StreamConfig> = {
       enabled: true,
       backpressure: {
         enabled: true,
@@ -203,8 +204,45 @@ export class StreamManagementService implements OnModuleInit, OnModuleDestroy {
         metricsInterval: 5000,
         healthCheckInterval: 30000,
       },
-      ...(this.options?.streamManagement || {}),
     };
+
+    // Deep merge user configuration with defaults
+    const userStreamConfig = (this.options?.streamManagement as Partial<StreamConfig>) || {};
+    this.config = this.deepMergeConfig(defaultConfig, userStreamConfig);
+
+    // Initialize metrics$ after config is set
+    this.metrics$ = new BehaviorSubject<StreamMetrics>(this.createInitialMetrics());
+  }
+
+  /**
+   * Deep merge configuration objects to properly handle nested structures
+   */
+  private deepMergeConfig(defaultConfig: Required<StreamConfig>, userConfig: Partial<StreamConfig>): Required<StreamConfig> {
+    const result = { ...defaultConfig };
+
+    // Deep merge each nested configuration section
+    if (userConfig.backpressure) {
+      result.backpressure = { ...defaultConfig.backpressure, ...userConfig.backpressure };
+    }
+    if (userConfig.batching) {
+      result.batching = { ...defaultConfig.batching, ...userConfig.batching };
+    }
+    if (userConfig.concurrency) {
+      result.concurrency = { ...defaultConfig.concurrency, ...userConfig.concurrency };
+    }
+    if (userConfig.errorHandling) {
+      result.errorHandling = { ...defaultConfig.errorHandling, ...userConfig.errorHandling };
+    }
+    if (userConfig.monitoring) {
+      result.monitoring = { ...defaultConfig.monitoring, ...userConfig.monitoring };
+    }
+
+    // Merge top-level properties
+    if (userConfig.enabled !== undefined) {
+      result.enabled = userConfig.enabled;
+    }
+
+    return result;
   }
 
   async onModuleInit(): Promise<void> {

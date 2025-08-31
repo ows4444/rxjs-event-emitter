@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Inject, Optional } from '@nestjs/common';
-import { BehaviorSubject, Subject, EMPTY, Observable } from 'rxjs';
+import { BehaviorSubject, Subject, EMPTY, Observable, Subscription } from 'rxjs';
 import { bufferTime, filter, groupBy, mergeMap, catchError, share, takeUntil, tap } from 'rxjs/operators';
 import { v4 as uuidv4 } from 'uuid';
 import { Event, EmitOptions, EVENT_EMITTER_OPTIONS, EventStatus, RegisteredHandler } from '../interfaces';
@@ -41,6 +41,7 @@ export class EventEmitterService implements OnModuleInit, OnModuleDestroy {
   private readonly handlers = new Map<string, RegisteredHandler[]>();
   private readonly isShuttingDown$ = new BehaviorSubject<boolean>(false);
   private readonly managedEventStream$: Observable<Event>;
+  private eventProcessingSubscription?: Subscription;
 
   // Enhanced integration flags
   private readonly advancedFeaturesEnabled: boolean;
@@ -67,9 +68,9 @@ export class EventEmitterService implements OnModuleInit, OnModuleDestroy {
     this.options = { ...this.defaultOptions, ...this.options };
     this.advancedFeaturesEnabled = this.options.enableAdvancedFeatures ?? true;
 
-    // Create managed event stream if stream management is available
+    // Create managed event stream if stream management is available and enabled
     this.managedEventStream$ =
-      this.streamManagementService && this.advancedFeaturesEnabled
+      this.streamManagementService && this.advancedFeaturesEnabled && this.isStreamManagementEnabled()
         ? this.streamManagementService.createManagedStream('event-bus', this.eventBus$, StreamType.EVENT_BUS)
         : this.eventBus$;
   }
@@ -94,14 +95,26 @@ export class EventEmitterService implements OnModuleInit, OnModuleDestroy {
   async onModuleDestroy(): Promise<void> {
     this.logger.log('Shutting down EventEmitterService ...');
     this.isShuttingDown$.next(true);
+
+    // Unsubscribe from event processing to stop timers
+    if (this.eventProcessingSubscription) {
+      this.eventProcessingSubscription.unsubscribe();
+    }
+
+    // Allow any pending bufferTime to complete
+    await new Promise((resolve) => setTimeout(resolve, this.options.bufferTimeMs! + 10));
+
     this.destroy$.next();
     this.destroy$.complete();
     this.eventBus$.complete();
+    this.isShuttingDown$.complete();
+
     this.logger.log('EventEmitterService  shutdown completed');
   }
 
   private setupEventProcessing(): void {
-    const sourceStream = this.advancedFeaturesEnabled && this.streamManagementService ? this.managedEventStream$ : this.eventBus$;
+    const sourceStream =
+      this.advancedFeaturesEnabled && this.streamManagementService && this.isStreamManagementEnabled() ? this.managedEventStream$ : this.eventBus$;
 
     const processedEvents$ = sourceStream.pipe(
       takeUntil(this.destroy$),
@@ -127,7 +140,7 @@ export class EventEmitterService implements OnModuleInit, OnModuleDestroy {
       share(),
     );
 
-    processedEvents$.subscribe({
+    this.eventProcessingSubscription = processedEvents$.subscribe({
       next: () => {
         // Event processed - no action needed
       },
@@ -338,5 +351,10 @@ export class EventEmitterService implements OnModuleInit, OnModuleDestroy {
         headers: options.headers,
       },
     };
+  }
+
+  private isStreamManagementEnabled(): boolean {
+    const streamManagementConfig = this.options.streamManagement as { enabled?: boolean } | undefined;
+    return streamManagementConfig?.enabled ?? true; // Default to true unless explicitly disabled
   }
 }
