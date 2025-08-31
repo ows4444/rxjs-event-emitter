@@ -1,8 +1,3 @@
-/**
- * @fileoverview Configuration interfaces for event emitter
- * Type-safe configuration for all aspects of the event system
- */
-
 import type { HandlerOptions } from './handler.interfaces';
 import type { PersistenceAdapter } from './persistence.interfaces';
 

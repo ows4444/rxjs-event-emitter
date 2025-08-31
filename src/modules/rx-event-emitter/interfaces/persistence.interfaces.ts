@@ -1,8 +1,3 @@
-/**
- * @fileoverview Persistence interfaces for event storage and retrieval
- * Type-safe persistence adapters and storage configuration
- */
-
 import type { Event } from './core.interfaces';
 
 /**

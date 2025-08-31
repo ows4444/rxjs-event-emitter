@@ -1,30 +1,65 @@
-import { DynamicModule, Global, Logger, Module, OnModuleDestroy, OnModuleInit, Provider } from '@nestjs/common';
-import { DiscoveryModule, DiscoveryService } from '@nestjs/core';
-import { EventEmitterService } from './event-emitter.service';
-import { EventPersistenceService } from './event-persistence.service';
-import { DeadLetterQueueService } from './dead-letter-queue.service';
-import { DependencyAnalyzerService } from './dependency-analyzer.service';
-import { HandlerPoolService, MetricsService, HandlerDiscoveryService, StreamManagementService, HandlerExecutionService } from './services';
-import { EVENT_EMITTER_OPTIONS, EventEmitterOptions } from './interfaces';
+import { DynamicModule, Global, Logger, Module, OnModuleInit } from '@nestjs/common';
+import { DiscoveryModule } from '@nestjs/core';
+import {
+  EventEmitterService,
+  EventEmitterOptions,
+  HandlerDiscoveryService,
+  PersistenceService,
+  MetricsService,
+  DeadLetterQueueService,
+  HandlerPoolService,
+  DependencyAnalyzerService,
+  HandlerExecutionService,
+  StreamManagementService,
+} from './services';
+import { EVENT_EMITTER_OPTIONS } from './interfaces';
 
 /**
- * Global NestJS module for RxJS Event Emitter functionality
+ * Enhanced NestJS implementation of RxJS Event Emitter Module 
  *
- * This module provides event-driven architecture capabilities with:
- * - Event publishing and subscription
- * - Handler auto-discovery
- * - Persistence and dead letter queues
- * - Circuit breakers and error recovery
- * - Metrics and monitoring
+ * Advanced Features:
+ * - Automatic handler discovery using NestJS DiscoveryService
+ * - RxJS-based event processing with advanced backpressure handling
+ * - Circuit breakers and error recovery mechanisms
+ * - Handler pools for concurrency control and isolation
+ * - Dead letter queue for failed event handling
+ * - Comprehensive metrics collection and monitoring
+ * - Advanced stream management and optimization
+ * - Dependency analysis and execution planning
+ * - Event persistence with advanced querying capabilities
+ * - Clean, injectable services following NestJS patterns
+ * - Type-safe event handling with decorators
  *
  * @example
  * ```typescript
  * @Module({
  *   imports: [
  *     EventEmitterModule.forRoot({
- *       persistence: { enabled: true },
- *       dlq: { enabled: true },
- *       monitoring: { enabled: true }
+ *       // Core configuration
+ *       maxConcurrency: 20,
+ *       bufferTimeMs: 50,
+ *       defaultTimeout: 10000,
+ *
+ *       // Advanced features
+ *       enableMetrics: true,
+ *       enablePersistence: true,
+ *       enableDeadLetterQueue: true,
+ *
+ *       // Service-specific configuration
+ *       handlerExecution: {
+ *         circuitBreaker: { enabled: true },
+ *         rateLimit: { enabled: true, maxPerSecond: 100 }
+ *       },
+ *
+ *       persistence: {
+ *         adapter: 'memory',
+ *         batchSize: 100
+ *       },
+ *
+ *       streamManagement: {
+ *         backpressure: { enabled: true, strategy: 'buffer' },
+ *         concurrency: { maxConcurrent: 15 }
+ *       }
  *     })
  *   ]
  * })
@@ -33,211 +68,96 @@ import { EVENT_EMITTER_OPTIONS, EventEmitterOptions } from './interfaces';
  */
 @Global()
 @Module({})
-export class EventEmitterModule implements OnModuleInit, OnModuleDestroy {
+export class EventEmitterModule implements OnModuleInit {
   private readonly logger = new Logger(EventEmitterModule.name);
-  private readonly initializationTimeoutMs = 30000; // 30 seconds
-  private readonly shutdownTimeoutMs = 15000; // 15 seconds
-  static forRoot(options?: EventEmitterOptions): DynamicModule {
-    const providers: Provider[] = [
-      {
-        provide: EVENT_EMITTER_OPTIONS,
-        useValue: options || {},
-      },
-      DependencyAnalyzerService,
-      HandlerPoolService,
-      MetricsService,
-      HandlerDiscoveryService,
-      StreamManagementService,
-      HandlerExecutionService,
-      EventEmitterService,
-      EventPersistenceService,
-      DeadLetterQueueService,
-    ];
 
-    // Perform circular dependency detection during module configuration
-    if (options?.validation?.enableDependencyAnalysis !== false) {
-      EventEmitterModule.validateDependencies(providers, options);
-    }
-
+  static forRoot(options: EventEmitterOptions = {}): DynamicModule {
     return {
       module: EventEmitterModule,
       imports: [DiscoveryModule],
-      providers,
-      exports: [EventEmitterService],
+      providers: [
+        {
+          provide: EVENT_EMITTER_OPTIONS,
+          useValue: options,
+        },
+        // Core services
+        EventEmitterService,
+        HandlerDiscoveryService,
+
+        // Advanced services
+        PersistenceService,
+        MetricsService,
+        DeadLetterQueueService,
+        HandlerPoolService,
+        DependencyAnalyzerService,
+        HandlerExecutionService,
+        StreamManagementService,
+      ],
+      exports: [
+        // Export all services for external use
+        EventEmitterService,
+        HandlerDiscoveryService,
+        PersistenceService,
+        MetricsService,
+        DeadLetterQueueService,
+        HandlerPoolService,
+        DependencyAnalyzerService,
+        HandlerExecutionService,
+        StreamManagementService,
+      ],
     };
   }
 
   constructor(
-    private readonly eventEmitter: EventEmitterService,
-    private readonly discovery: DiscoveryService,
+    private readonly handlerDiscovery: HandlerDiscoveryService,
+    private readonly metricsService: MetricsService,
     private readonly dependencyAnalyzer: DependencyAnalyzerService,
   ) {}
 
-  static validateDependencies(providers: Provider[], options?: EventEmitterOptions): void {
-    const logger = new Logger(`${EventEmitterModule.name}:DependencyValidator`);
-
-    try {
-      // Create temporary analyzer for validation
-      const analyzer = new DependencyAnalyzerService();
-      const result = analyzer.analyzeDependencies(providers);
-
-      if (!result.isValid) {
-        const report = analyzer.generateDependencyReport(result);
-        logger.error('Circular dependency detection failed:');
-        logger.error(report);
-
-        const strictMode = options?.validation?.strictDependencyValidation !== false;
-
-        if (strictMode) {
-          const errorMessage =
-            result.circularDependencies.length > 0
-              ? `Circular dependencies detected: ${result.circularDependencies.map((cd) => cd.cycle.join(' → ')).join('; ')}`
-              : `Dependency validation failed: ${result.errors.map((e) => e.message).join('; ')}`;
-
-          throw new Error(`EventEmitterModule configuration invalid: ${errorMessage}`);
-        } else {
-          logger.warn('Dependency validation failed but continuing in non-strict mode');
-          logger.warn(`Errors: ${result.errors.map((e) => e.message).join('; ')}`);
-        }
-      } else {
-        logger.log('✅ Dependency validation passed - no circular dependencies detected');
-
-        if (result.warnings.length > 0) {
-          logger.warn('Dependency validation warnings:');
-          result.warnings.forEach((warning) => logger.warn(`   ${warning}`));
-        }
-
-        // Log dependency resolution order in debug mode
-        if (options?.validation?.logDependencyGraph) {
-          const report = analyzer.generateDependencyReport(result);
-          logger.debug('Dependency Analysis Report:');
-          logger.debug(report);
-        }
-      }
-    } catch (error) {
-      logger.error('Failed to perform dependency analysis', error instanceof Error ? error.stack : String(error));
-
-      // In strict mode, re-throw the error to prevent module loading
-      if (options?.validation?.strictDependencyValidation !== false) {
-        throw error;
-      }
-    }
-  }
-
   async onModuleInit(): Promise<void> {
-    const operationTimeout = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('Module initialization timeout')), this.initializationTimeoutMs);
-    });
+    this.logger.log('Initializing Enhanced EventEmitter Module ...');
 
     try {
-      this.logger.log('Initializing EventEmitter module...');
+      // 1. Discover and register all event handlers
+      this.logger.debug('Step 1: Discovering event handlers...');
+      const handlers = this.handlerDiscovery.discoverHandlers();
+      this.logger.log(`Event handlers discovered: ${handlers.length} handlers found`);
 
-      await Promise.race([this.performInitialization(), operationTimeout]);
+      // 2. Analyze handler dependencies
+      this.logger.debug('Step 2: Analyzing handler dependencies...');
+      this.dependencyAnalyzer.registerHandlers(handlers);
 
-      this.logger.log('EventEmitter module initialized successfully');
-    } catch (error) {
-      this.logger.error('Failed to initialize EventEmitter module', error instanceof Error ? error.stack : String(error));
-
-      // Graceful degradation - continue with partial functionality
-      try {
-        this.logger.warn('Attempting graceful degradation during initialization...');
-        await this.gracefulDegradation();
-        this.logger.warn('EventEmitter module partially initialized with limited functionality');
-      } catch (degradationError) {
-        this.logger.error(
-          'Graceful degradation failed during initialization',
-          degradationError instanceof Error ? degradationError.stack : String(degradationError),
-        );
-        // Re-throw to prevent module from starting in broken state
-        throw new Error(`EventEmitter module initialization failed completely: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    }
-  }
-
-  async onModuleDestroy(): Promise<void> {
-    const shutdownTimeout = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('Module shutdown timeout')), this.shutdownTimeoutMs);
-    });
-
-    try {
-      this.logger.log('Shutting down EventEmitter module...');
-
-      await Promise.race([this.performShutdown(), shutdownTimeout]);
-
-      this.logger.log('EventEmitter module shut down successfully');
-    } catch (error) {
-      this.logger.error('Error during EventEmitter module shutdown', error instanceof Error ? error.stack : String(error));
-
-      // Attempt forced cleanup
-      try {
-        this.logger.warn('Attempting forced cleanup during shutdown...');
-        await this.forceCleanup();
-        this.logger.warn('EventEmitter module shutdown completed with forced cleanup');
-      } catch (cleanupError) {
-        this.logger.error('Forced cleanup failed during shutdown', cleanupError instanceof Error ? cleanupError.stack : String(cleanupError));
-        // Don't re-throw during shutdown to prevent blocking application termination
-      }
-    }
-  }
-
-  private async performInitialization(): Promise<void> {
-    try {
-      // Step 1: Discover handlers with timeout
-      this.logger.debug('Discovering event handlers...');
-      this.eventEmitter.discoverHandlers(this.discovery);
-      this.logger.debug('Event handlers discovered successfully');
-
-      // Step 2: Replay unprocessed events with timeout
-      this.logger.debug('Replaying unprocessed events...');
-      await this.eventEmitter.replayUnprocessedEvents();
-      this.logger.debug('Unprocessed events replayed successfully');
-    } catch (error) {
-      throw new Error(`Initialization step failed: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-
-  private async performShutdown(): Promise<void> {
-    try {
-      this.logger.debug('Performing graceful shutdown...');
-      await this.eventEmitter.gracefulShutdown();
-      this.logger.debug('Graceful shutdown completed');
-    } catch (error) {
-      throw new Error(`Shutdown step failed: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-
-  private async gracefulDegradation(): Promise<void> {
-    try {
-      // Minimal initialization - at least try to start the service
-      this.logger.debug('Attempting minimal service initialization...');
-
-      // Skip handler discovery if it failed, but ensure service is available
-      if (!this.eventEmitter) {
-        throw new Error('EventEmitter service is not available for degradation');
+      const analysisResult = this.dependencyAnalyzer.getCurrentAnalysisResult();
+      if (analysisResult.circularDependencies.length > 0) {
+        this.logger.warn(`Found ${analysisResult.circularDependencies.length} circular dependencies`);
+        analysisResult.circularDependencies.forEach((cd) => {
+          this.logger.warn(`  Circular dependency: ${cd.cycle.join(' -> ')}`);
+        });
       }
 
-      // Mark service as degraded
-      this.logger.warn('EventEmitter service running in degraded mode - some features may not work');
+      // 3. Generate execution plan
+      const handlerNames = handlers.map((h) => h.metadata.eventName);
+      const executionPlan = this.dependencyAnalyzer.generateExecutionPlan(handlerNames);
+      this.logger.log(`Execution plan generated: ${executionPlan.totalPhases} phases, ${executionPlan.parallelizationOpportunities} parallel opportunities`);
+
+      // 4. Log system health
+      const systemMetrics = this.metricsService.getCurrentSystemMetrics();
+      this.logger.log(`System health: ${systemMetrics.health.status} (score: ${systemMetrics.health.score}/100)`);
+
+      if (systemMetrics.health.alerts.length > 0) {
+        this.logger.warn('System alerts detected:');
+        systemMetrics.health.alerts.forEach((alert) => {
+          this.logger.warn(`  - ${alert}`);
+        });
+      }
+
+      // 5. Log configuration summary
+
+      this.logger.log('Enhanced EventEmitter Module  initialized successfully');
+      this.logger.log('='.repeat(60));
     } catch (error) {
-      throw new Error(`Graceful degradation failed: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-
-  private async forceCleanup(): Promise<void> {
-    try {
-      this.logger.debug('Performing forced cleanup...');
-
-      // Attempt graceful shutdown with a very short timeout
-      this.logger.warn('Attempting graceful shutdown with shorter timeout for forced cleanup');
-      await Promise.race([
-        this.eventEmitter?.gracefulShutdown(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Force cleanup timeout')), 5000)),
-      ]);
-
-      this.logger.debug('Forced cleanup completed');
-    } catch (error) {
-      // Log but don't throw - we're already in error recovery
-      this.logger.warn(`Force cleanup encountered additional errors: ${error instanceof Error ? error.message : String(error)}`);
+      this.logger.error('Failed to initialize Enhanced EventEmitter Module :', error instanceof Error ? error.stack : String(error));
+      throw error;
     }
   }
 }

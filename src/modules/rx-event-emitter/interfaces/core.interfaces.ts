@@ -1,9 +1,4 @@
 /**
- * @fileoverview Core event interfaces and types
- * Fundamental structures for event-driven architecture
- */
-
-/**
  * Event processing status
  */
 export enum EventStatus {
@@ -107,6 +102,12 @@ export interface EventStats {
   readonly retrying: number;
   /** Events in dead letter queue */
   readonly deadLettered: number;
+  /** Processing rate (events/sec) */
+  readonly processingRate: number;
+  /** Error rate percentage */
+  readonly errorRate: number;
+  /** Retry success rate */
+  readonly retrySuccessRate: number;
 }
 
 /**
@@ -194,4 +195,104 @@ export interface EventValidator {
    * Validate event payload
    */
   validatePayload<TPayload>(payload: TPayload, eventName: string): EventValidationResult;
+}
+
+/**
+ * Circuit breaker states
+ */
+export enum CircuitBreakerState {
+  CLOSED = 'closed',
+  OPEN = 'open',
+  HALF_OPEN = 'half_open',
+}
+
+/**
+ * Circuit breaker metrics
+ */
+export interface CircuitBreakerMetrics {
+  /** Current state */
+  readonly state: CircuitBreakerState;
+  /** Failure count in current window */
+  readonly failureCount: number;
+  /** Success count in current window */
+  readonly successCount: number;
+  /** Last failure timestamp */
+  readonly lastFailureTime?: number;
+  /** Last success timestamp */
+  readonly lastSuccessTime?: number;
+  /** Next allowed attempt timestamp (when OPEN) */
+  readonly nextAttemptTime?: number;
+  /** Failure rate percentage */
+  readonly failureRate: number;
+  /** Configuration */
+  readonly config: {
+    readonly failureThreshold: number;
+    readonly recoveryTimeout: number;
+    readonly minimumThroughput: number;
+  };
+}
+
+/**
+ * Handler pool configuration
+ */
+export interface HandlerPoolConfig {
+  /** Maximum concurrent executions */
+  readonly maxConcurrency: number;
+  /** Queue size for pending tasks */
+  readonly queueSize: number;
+  /** Task timeout in milliseconds */
+  readonly timeoutMs: number;
+  /** Pool isolation strategy */
+  readonly isolation: IsolationStrategy;
+  /** Pool name for metrics */
+  readonly name: string;
+}
+
+/**
+ * Isolation strategies for handler pools
+ */
+export enum IsolationStrategy {
+  SHARED = 'shared',
+  ISOLATED = 'isolated',
+  TENANT_ISOLATED = 'tenant_isolated',
+}
+
+/**
+ * Handler pool metrics
+ */
+export interface HandlerPoolMetrics {
+  /** Pool name */
+  readonly name: string;
+  /** Active executions */
+  readonly activeExecutions: number;
+  /** Queued tasks */
+  readonly queuedTasks: number;
+  /** Dropped tasks */
+  readonly droppedTasks: number;
+  /** Completed tasks */
+  readonly completedTasks: number;
+  /** Failed tasks */
+  readonly failedTasks: number;
+  /** Average execution time */
+  readonly averageExecutionTime: number;
+  /** Pool utilization percentage */
+  readonly utilization: number;
+  /** Circuit breaker metrics */
+  readonly circuitBreaker: CircuitBreakerMetrics;
+}
+
+/**
+ * Handler pool interface
+ */
+export interface HandlerPool {
+  /** Pool configuration */
+  readonly config: HandlerPoolConfig;
+  /** Pool metrics */
+  readonly metrics: HandlerPoolMetrics;
+  /** Execute task in pool */
+  execute<T>(task: () => Promise<T>): Promise<T>;
+  /** Get pool status */
+  getStatus(): 'healthy' | 'degraded' | 'unhealthy';
+  /** Shutdown pool */
+  shutdown(): Promise<void>;
 }

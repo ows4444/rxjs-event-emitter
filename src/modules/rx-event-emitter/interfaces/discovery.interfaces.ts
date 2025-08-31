@@ -1,8 +1,3 @@
-/**
- * @fileoverview Discovery interfaces for handler registration and dependency management
- * Type-safe handler discovery with caching and validation
- */
-
 import type { HandlerMetadata } from './handler.interfaces';
 
 /**

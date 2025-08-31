@@ -115,16 +115,15 @@ export class InMemoryPersistenceAdapter implements PersistenceAdapter {
       newestEvent,
       avgEventSize: events.length > 0 ? Math.round(totalSize / events.length) : 0,
       performance: {
-        averageQueryTime: 1,
-        slowQueries: 0,
-        peakMemoryUsage: totalSize,
+        operationsPerSecond: 0, // In-memory is instant
+        avgLoadTime: 0,
+        avgQueryTime: 0,
+        avgSaveTime: 0,
       },
       health: {
-        connectivity: true,
-        diskSpace: true,
-        performance: events.length < 10000,
-        integrity: true,
-        backup: true,
+        isHealthy: false,
+        lastHealthCheck: 0,
+        connected: false,
       },
     };
   }
@@ -151,6 +150,7 @@ export class InMemoryPersistenceAdapter implements PersistenceAdapter {
         errorRate: 0,
       },
       issues: stats.totalEvents >= 10000 ? ['High event count in memory - consider using persistent storage'] : [],
+      timestamp: 0,
     };
   }
 

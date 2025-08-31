@@ -1,8 +1,3 @@
-/**
- * @fileoverview Handler interfaces for event processing
- * Type-safe handler registration and execution
- */
-
 import type { Observable } from 'rxjs';
 import type { Event, EventPriority } from './core.interfaces';
 

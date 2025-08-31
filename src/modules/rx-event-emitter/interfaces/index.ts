@@ -1,8 +1,3 @@
-/**
- * @fileoverview Centralized export of all event emitter interfaces
- * Modern, type-safe interfaces for event-driven architecture
- */
-
 // =============================================================================
 // CORE INTERFACES - Event fundamentals
 // =============================================================================
@@ -32,6 +27,18 @@ export * from './persistence.interfaces';
 // =============================================================================
 
 export * from './discovery.interfaces';
+
+// =============================================================================
+// DEAD LETTER QUEUE INTERFACES - Failed event handling
+// =============================================================================
+
+export * from './dead-letter-queue.interfaces';
+
+// =============================================================================
+// POOL INTERFACES - Handler pools and isolation
+// =============================================================================
+
+export * from './pool.interfaces';
 
 // =============================================================================
 // DEPENDENCY INJECTION TOKENS
