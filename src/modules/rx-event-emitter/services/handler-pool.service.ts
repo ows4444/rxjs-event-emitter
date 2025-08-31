@@ -12,17 +12,17 @@ import {
   ResourceUsageMetrics,
   IsolationMetrics,
   PoolMetrics,
-  IsolationStrategy,
   CircuitBreakerState,
   EVENT_EMITTER_OPTIONS,
 } from '../interfaces';
+import { IsolationStrategy } from '../interfaces/core.interfaces';
 
 /**
  * Internal pool implementation
  */
 class Pool implements HandlerPool {
-  private readonly activeExecutions = new Map<string, Promise<any>>();
-  private readonly taskQueue: Array<{ task: () => Promise<any>; resolve: (value: any) => void; reject: (error: any) => void }> = [];
+  private readonly activeExecutions = new Map<string, Promise<unknown>>();
+  private readonly taskQueue: Array<{ task: () => Promise<unknown>; resolve: (value: unknown) => void; reject: (error: unknown) => void }> = [];
   private readonly metrics$ = new BehaviorSubject<HandlerPoolMetrics>(this.createInitialMetrics());
   private readonly circuitBreaker = {
     state: CircuitBreakerState.CLOSED,
@@ -86,7 +86,7 @@ class Pool implements HandlerPool {
       }
 
       return new Promise<T>((resolve, reject) => {
-        this.taskQueue.push({ task: task as () => Promise<any>, resolve, reject });
+        this.taskQueue.push({ task: task as () => Promise<unknown>, resolve, reject });
         this.updateMetrics();
       });
     }
@@ -234,7 +234,7 @@ export class HandlerPoolService implements OnModuleInit, OnModuleDestroy {
 
   private metricsUpdateTimer?: NodeJS.Timeout;
 
-  constructor(@Optional() @Inject(EVENT_EMITTER_OPTIONS) private readonly options: any = {}) {}
+  constructor(@Optional() @Inject(EVENT_EMITTER_OPTIONS) private readonly options: Record<string, unknown> = {}) {}
 
   async onModuleInit(): Promise<void> {
     this.logger.log('Initializing Handler Pool Service...');
@@ -395,6 +395,20 @@ export class HandlerPoolService implements OnModuleInit, OnModuleDestroy {
 
     const averageUtilization = pools.length > 0 ? totalUtilization / pools.length : 0;
 
+    // Convert poolMetrics to match expected interface
+    const convertedPoolMetrics = new Map();
+    poolMetrics.forEach((metrics, poolName) => {
+      convertedPoolMetrics.set(poolName, {
+        utilization: metrics.utilization,
+        throughput: metrics.averageExecutionTime ? 1000 / metrics.averageExecutionTime : 0,
+        errorRate: 1 - metrics.successRate,
+        averageWaitTime: 0, // Not available in current metrics
+        queueDepth: metrics.queuedTasks,
+        healthScore: metrics.successRate,
+        efficiency: metrics.utilization,
+      });
+    });
+
     const metrics: HandlerIsolationMetrics = {
       totalPools: pools.length,
       activePools,
@@ -403,7 +417,7 @@ export class HandlerPoolService implements OnModuleInit, OnModuleDestroy {
       totalDroppedTasks,
       averagePoolUtilization: averageUtilization,
       circuitBreakerStates,
-      poolMetrics,
+      poolMetrics: convertedPoolMetrics,
       resourceUsage: this.calculateResourceUsage(pools),
       isolation: this.calculateIsolationMetrics(pools),
     };

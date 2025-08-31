@@ -1,5 +1,81 @@
 import type { HandlerMetadata } from './handler.interfaces';
 
+// =============================================================================
+// DEPENDENCY ANALYSIS INTERFACES - Handler dependency management
+// =============================================================================
+
+/**
+ * Dependency relationship between handlers
+ */
+export interface HandlerDependency {
+  readonly handler: string;
+  readonly dependsOn: string;
+  readonly type: DependencyType;
+  readonly strength: DependencyStrength;
+  readonly metadata?: Record<string, unknown>;
+}
+
+/**
+ * Types of dependencies
+ */
+export enum DependencyType {
+  SEQUENTIAL = 'sequential', // Handler must execute after another
+  CONDITIONAL = 'conditional', // Handler executes if another succeeds
+  EXCLUSIVE = 'exclusive', // Handlers cannot run simultaneously
+  RESOURCE = 'resource', // Shared resource dependency
+  DATA = 'data', // Data dependency (output -> input)
+}
+
+/**
+ * Dependency strength levels
+ */
+export enum DependencyStrength {
+  WEAK = 'weak', // Soft dependency, can proceed without
+  STRONG = 'strong', // Hard dependency, must wait
+  CRITICAL = 'critical', // Critical dependency, failure propagates
+}
+
+/**
+ * Dependency analysis result
+ */
+export interface DependencyAnalysisResult {
+  readonly totalHandlers: number;
+  readonly totalDependencies: number;
+  readonly circularDependencies: CircularDependency[];
+  readonly isolatedHandlers: string[];
+  readonly criticalPath: string[];
+  readonly maxDepth: number;
+  readonly analysisTimestamp: number;
+  readonly warnings: string[];
+  readonly errors: string[];
+}
+
+/**
+ * Execution order information
+ */
+export interface ExecutionPlan {
+  readonly phases: ExecutionPhase[];
+  readonly totalPhases: number;
+  readonly estimatedExecutionTime: number;
+  readonly parallelizationOpportunities: number;
+  readonly bottlenecks: string[];
+}
+
+/**
+ * Execution phase (handlers that can run in parallel)
+ */
+export interface ExecutionPhase {
+  readonly phase: number;
+  readonly handlers: string[];
+  readonly dependencies: HandlerDependency[];
+  readonly estimatedDuration: number;
+  readonly canRunInParallel: boolean;
+}
+
+// =============================================================================
+// DISCOVERY CACHE INTERFACES
+// =============================================================================
+
 /**
  * Cache for handler discovery results
  * Optimizes performance by caching reflection results

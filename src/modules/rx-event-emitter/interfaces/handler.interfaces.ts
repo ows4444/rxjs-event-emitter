@@ -1,5 +1,5 @@
 import type { Observable } from 'rxjs';
-import type { Event, EventPriority } from './core.interfaces';
+import type { Event, EventPriority, HandlerPool } from './core.interfaces';
 
 /**
  * Handler execution isolation strategy
@@ -187,9 +187,9 @@ export interface ExecutionResult {
 }
 
 /**
- * Handler execution pool for isolation and concurrency
+ * Handler execution pool statistics for isolation and concurrency
  */
-export interface HandlerPool {
+export interface HandlerPoolStats {
   /** Isolation context identifier */
   readonly isolationContext: string;
   /** Concurrency limit */

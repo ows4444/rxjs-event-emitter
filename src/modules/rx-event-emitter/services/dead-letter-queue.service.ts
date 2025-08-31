@@ -88,7 +88,7 @@ export class DeadLetterQueueService implements OnModuleInit, OnModuleDestroy {
   private autoRetryTimer?: NodeJS.Timeout;
 
   constructor(
-    @Optional() @Inject(EVENT_EMITTER_OPTIONS) private readonly options: Record<string, any> = {},
+    @Optional() @Inject(EVENT_EMITTER_OPTIONS) private readonly options: Record<string, unknown> = {},
     @Optional() private readonly eventEmitterService?: EventEmitterService,
     @Optional() private readonly persistenceService?: PersistenceService,
     @Optional() private readonly metricsService?: MetricsService,
@@ -104,7 +104,7 @@ export class DeadLetterQueueService implements OnModuleInit, OnModuleDestroy {
         adapter: 'memory',
         cleanupIntervalMs: 300000,
       },
-      ...this.options?.dlq,
+      ...(this.options?.dlq || {}),
     };
   }
 
@@ -354,39 +354,44 @@ export class DeadLetterQueueService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async loadPersistedEntries(): Promise<void> {
-    if (!this.persistenceService) return;
+    if (!this.persistenceService || typeof this.persistenceService.getDLQEntriesForService !== 'function') return;
 
     try {
       const persistedEntries = await this.persistenceService.getDLQEntriesForService();
-      persistedEntries.forEach((entry) => {
-        this.queue.set(entry.event.metadata.id, entry);
-      });
-
-      this.logger.log(`Loaded ${persistedEntries.length} persisted DLQ entries`);
+      if (Array.isArray(persistedEntries)) {
+        persistedEntries.forEach((entry: unknown) => {
+          if (entry && typeof entry === 'object' && 'event' in entry) {
+            const dlqEntry = entry as DLQEntry;
+            this.queue.set(dlqEntry.event.metadata.id, dlqEntry);
+          }
+        });
+        this.logger.log(`Loaded ${persistedEntries.length} persisted DLQ entries`);
+      }
     } catch (error) {
-      this.logger.error('Failed to load persisted DLQ entries:', error);
+      this.logger.error('Failed to load persisted DLQ entries:', error instanceof Error ? error.message : String(error));
     }
   }
 
   private async persistEntry(entry: DLQEntry): Promise<void> {
-    if (!this.persistenceService) return;
+    if (!this.persistenceService || typeof this.persistenceService.saveDLQEntry !== 'function') return;
 
     try {
       await this.persistenceService.saveDLQEntry(entry);
     } catch (error) {
-      this.logger.error('Failed to persist DLQ entry:', error);
+      this.logger.error('Failed to persist DLQ entry:', error instanceof Error ? error.message : String(error));
     }
   }
 
   private async persistAllEntries(): Promise<void> {
-    if (!this.persistenceService) return;
+    if (!this.persistenceService || typeof this.persistenceService.saveDLQEntries !== 'function') return;
 
     try {
       const entries = Array.from(this.queue.values());
+
       await this.persistenceService.saveDLQEntries(entries);
       this.logger.log(`Persisted ${entries.length} DLQ entries`);
     } catch (error) {
-      this.logger.error('Failed to persist DLQ entries:', error);
+      this.logger.error('Failed to persist DLQ entries:', error instanceof Error ? error.message : String(error));
     }
   }
 

@@ -1,3 +1,5 @@
+import type { CircuitBreakerState } from './handler.interfaces';
+
 /**
  * Event processing status
  */
@@ -197,14 +199,7 @@ export interface EventValidator {
   validatePayload<TPayload>(payload: TPayload, eventName: string): EventValidationResult;
 }
 
-/**
- * Circuit breaker states
- */
-export enum CircuitBreakerState {
-  CLOSED = 'closed',
-  OPEN = 'open',
-  HALF_OPEN = 'half_open',
-}
+// Circuit breaker states are defined in handler.interfaces.ts to avoid duplication
 
 /**
  * Circuit breaker metrics

@@ -9,6 +9,7 @@ export * from './core.interfaces';
 // =============================================================================
 
 export * from './handler.interfaces';
+export { PoolRegisteredHandler } from './pool.interfaces';
 
 // =============================================================================
 // CONFIGURATION INTERFACES - Type-safe configuration
@@ -26,7 +27,16 @@ export * from './persistence.interfaces';
 // DISCOVERY INTERFACES - Handler discovery and dependency management
 // =============================================================================
 
-export * from './discovery.interfaces';
+// Export specific interfaces to avoid conflicts
+export {
+  HandlerDependency,
+  DependencyType,
+  DependencyStrength,
+  CircularDependency,
+  DependencyAnalysisResult,
+  ExecutionPlan,
+  ExecutionPhase,
+} from './discovery.interfaces';
 
 // =============================================================================
 // DEAD LETTER QUEUE INTERFACES - Failed event handling
@@ -38,7 +48,13 @@ export * from './dead-letter-queue.interfaces';
 // POOL INTERFACES - Handler pools and isolation
 // =============================================================================
 
-export * from './pool.interfaces';
+// Export specific interfaces to avoid conflicts with discovery.interfaces
+export { HandlerStats, ResourceUsageMetrics, IsolationMetrics, PoolMetrics } from './pool.interfaces';
+export { HandlerPoolStats } from './handler.interfaces';
+// Use HandlerIsolationMetrics from pool.interfaces (more specific)
+export { HandlerIsolationMetrics } from './pool.interfaces';
+// Export HandlerPool from core interfaces (main interface)
+export { HandlerPool } from './core.interfaces';
 
 // =============================================================================
 // DEPENDENCY INJECTION TOKENS

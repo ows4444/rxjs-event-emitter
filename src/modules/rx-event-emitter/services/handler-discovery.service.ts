@@ -30,26 +30,29 @@ export class HandlerDiscoveryService {
     });
   }
 
-  private scanForHandlers(instance: any): void {
+  private scanForHandlers(instance: unknown): void {
     const prototype = Object.getPrototypeOf(instance);
 
-    this.metadataScanner.scanFromPrototype(instance, prototype, (methodName: string) => this.registerHandlerIfDecorated(instance, methodName));
+    this.metadataScanner.scanFromPrototype(instance as Record<string, unknown>, prototype as object, (methodName: string) =>
+      this.registerHandlerIfDecorated(instance as Record<string, unknown>, methodName),
+    );
   }
 
-  private registerHandlerIfDecorated(instance: any, methodName: string): void {
-    const eventName = this.reflector.get<string>(EVENT_HANDLER_METADATA, instance[methodName]);
+  private registerHandlerIfDecorated(instance: Record<string, unknown>, methodName: string): void {
+    const eventName = this.reflector.get<string>(EVENT_HANDLER_METADATA, instance[methodName] as (...args: unknown[]) => unknown);
 
     if (!eventName) {
       return;
     }
 
     // Handler options available for future use
-    const _handlerOptions = this.reflector.get<HandlerOptions>(EVENT_HANDLER_OPTIONS, instance[methodName]) || {};
+    const _handlerOptions = this.reflector.get<HandlerOptions>(EVENT_HANDLER_OPTIONS, instance[methodName] as (...args: unknown[]) => unknown) || {};
 
-    const handler = async (event: any) => {
+    const handler = async (event: unknown) => {
       try {
-        await instance[methodName](event);
-      } catch (error) {
+        const method = instance[methodName] as (...args: unknown[]) => unknown;
+        await method.call(instance, event);
+      } catch (error: unknown) {
         this.logger.error(`Handler ${instance.constructor.name}.${methodName} failed for event ${eventName}:`, error);
         throw error;
       }

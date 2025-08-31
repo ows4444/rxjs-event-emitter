@@ -103,7 +103,7 @@ export interface HandlerExecutionContext {
   /** Event being processed */
   readonly event: Event;
   /** Handler metadata */
-  readonly handler: RegisteredHandler;
+  readonly handler: BaseRegisteredHandler;
   /** Pool name */
   readonly poolName: string;
   /** Correlation ID for tracing */
@@ -141,13 +141,9 @@ export interface ExecutionResult {
 /**
  * Registered handler with enhanced metadata
  */
-export interface RegisteredHandler {
-  /** Handler function */
-  readonly handler: (event: Event) => Promise<void>;
-  /** Handler metadata */
-  readonly metadata: HandlerMetadata;
-  /** Instance reference */
-  readonly instance: object;
+import type { RegisteredHandler as BaseRegisteredHandler } from './handler.interfaces';
+
+export interface PoolRegisteredHandler extends BaseRegisteredHandler {
   /** Method name */
   readonly methodName: string;
   /** Pool assignment */

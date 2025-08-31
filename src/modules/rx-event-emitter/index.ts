@@ -36,14 +36,6 @@ export {
   EventMetrics,
   SystemMetrics,
   MetricsConfig,
-  PersistenceConfig,
-  EnhancedPersistenceStats,
-  HandlerDependency,
-  DependencyType,
-  DependencyStrength,
-  CircularDependency,
-  DependencyAnalysisResult,
-  ExecutionPlan,
   HandlerExecutionStats,
   ExecutionConfig,
   EnhancedExecutionContext,
@@ -57,6 +49,9 @@ export {
   StreamHealth,
 } from './services';
 
+// Import interfaces from interfaces module
+export { HandlerDependency, DependencyType, DependencyStrength, CircularDependency, DependencyAnalysisResult, ExecutionPlan } from './interfaces';
+
 // =============================================================================
 // TYPE EXPORTS - All interfaces and types
 // =============================================================================
@@ -69,6 +64,12 @@ export type { EventEmitterOptions } from './services';
 // =============================================================================
 
 export { EventPriority, EventStatus } from './interfaces';
+
+// =============================================================================
+// ADDITIONAL INTERFACES
+// =============================================================================
+
+export { PersistenceConfig } from './interfaces';
 
 // =============================================================================
 // ADAPTERS

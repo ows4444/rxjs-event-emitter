@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Event, EventStatus } from '../interfaces';
+import { Event, EventStatus, DLQEntry } from '../interfaces';
 
 @Injectable()
 export class PersistenceService {
@@ -53,5 +53,46 @@ export class PersistenceService {
   async clear(): Promise<void> {
     this.events.clear();
     this.logger.log('All persisted events cleared');
+  }
+
+  // DLQ-specific methods
+  private readonly dlqEntries = new Map<string, DLQEntry>();
+
+  async getDLQEntriesForService(): Promise<DLQEntry[]> {
+    return Array.from(this.dlqEntries.values());
+  }
+
+  async saveDLQEntry(entry: DLQEntry): Promise<void> {
+    try {
+      this.dlqEntries.set(entry.event.metadata.id, entry);
+      this.logger.debug(`DLQ entry saved: ${entry.event.metadata.id}`);
+    } catch (error) {
+      this.logger.error(`Failed to save DLQ entry ${entry.event.metadata.id}:`, error);
+      throw error;
+    }
+  }
+
+  async saveDLQEntries(entries: DLQEntry[]): Promise<void> {
+    try {
+      for (const entry of entries) {
+        this.dlqEntries.set(entry.event.metadata.id, entry);
+      }
+      this.logger.debug(`Saved ${entries.length} DLQ entries`);
+    } catch (error) {
+      this.logger.error(`Failed to save DLQ entries:`, error);
+      throw error;
+    }
+  }
+
+  async getDLQEntry(eventId: string): Promise<DLQEntry | undefined> {
+    return this.dlqEntries.get(eventId);
+  }
+
+  async deleteDLQEntry(eventId: string): Promise<boolean> {
+    const deleted = this.dlqEntries.delete(eventId);
+    if (deleted) {
+      this.logger.debug(`DLQ entry deleted: ${eventId}`);
+    }
+    return deleted;
   }
 }

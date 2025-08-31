@@ -107,7 +107,7 @@ export interface ManagedStream {
   readonly id: string;
   readonly name: string;
   readonly type: StreamType;
-  readonly source: Observable<any>;
+  readonly source: Observable<unknown>;
   readonly subscription: Subscription;
   readonly config: StreamConfig;
   readonly createdAt: number;
@@ -160,7 +160,7 @@ export class StreamManagementService implements OnModuleInit, OnModuleDestroy {
   private readonly streamHealth = new Map<string, StreamHealth>();
 
   private readonly metrics$ = new BehaviorSubject<StreamMetrics>(this.createInitialMetrics());
-  private readonly streamUpdates$ = new Subject<{ action: 'created' | 'destroyed' | 'error'; streamId: string; details?: any }>();
+  private readonly streamUpdates$ = new Subject<{ action: 'created' | 'destroyed' | 'error'; streamId: string; details?: unknown }>();
 
   private metricsTimer?: NodeJS.Timeout;
   private healthCheckTimer?: NodeJS.Timeout;
@@ -171,7 +171,7 @@ export class StreamManagementService implements OnModuleInit, OnModuleDestroy {
   private totalItemsDropped = 0;
   private totalErrors = 0;
 
-  constructor(@Optional() @Inject(EVENT_EMITTER_OPTIONS) private readonly options: any = {}) {
+  constructor(@Optional() @Inject(EVENT_EMITTER_OPTIONS) private readonly options: Record<string, unknown> = {}) {
     this.config = {
       enabled: true,
       backpressure: {
@@ -203,7 +203,7 @@ export class StreamManagementService implements OnModuleInit, OnModuleDestroy {
         metricsInterval: 5000,
         healthCheckInterval: 30000,
       },
-      ...this.options?.streamManagement,
+      ...(this.options?.streamManagement || {}),
     };
   }
 
@@ -377,7 +377,7 @@ export class StreamManagementService implements OnModuleInit, OnModuleDestroy {
   /**
    * Get stream updates observable
    */
-  getStreamUpdates(): Observable<{ action: 'created' | 'destroyed' | 'error'; streamId: string; details?: any }> {
+  getStreamUpdates(): Observable<{ action: 'created' | 'destroyed' | 'error'; streamId: string; details?: unknown }> {
     return this.streamUpdates$.asObservable();
   }
 
@@ -533,7 +533,7 @@ export class StreamManagementService implements OnModuleInit, OnModuleDestroy {
     return Promise.resolve(item);
   }
 
-  private handleStreamError(streamId: string, error: any): Observable<never> {
+  private handleStreamError(streamId: string, error: unknown): Observable<never> {
     this.logger.error(`Stream ${streamId} error:`, error);
     this.recordStreamMetric(streamId, 'error');
     this.streamUpdates$.next({ action: 'error', streamId, details: error });
@@ -549,7 +549,7 @@ export class StreamManagementService implements OnModuleInit, OnModuleDestroy {
   private recordStreamActivity(streamId: string): void {
     const stream = this.managedStreams.get(streamId);
     if (stream) {
-      (stream as any).lastActivityAt = Date.now();
+      (stream as { lastActivityAt: number }).lastActivityAt = Date.now();
     }
   }
 
@@ -557,7 +557,16 @@ export class StreamManagementService implements OnModuleInit, OnModuleDestroy {
     const stream = this.managedStreams.get(streamId);
     if (!stream) return;
 
-    const metrics = stream.metrics as any;
+    // Cast to mutable version to update metrics
+    const metrics = stream.metrics as {
+      itemsProcessed: number;
+      itemsDropped: number;
+      errors: number;
+      avgProcessingTime: number;
+      lastProcessedAt?: number;
+      bufferSize: number;
+      backpressureEvents: number;
+    };
 
     switch (type) {
       case 'processed':
@@ -572,6 +581,10 @@ export class StreamManagementService implements OnModuleInit, OnModuleDestroy {
       case 'error':
         metrics.errors++;
         this.totalErrors++;
+        break;
+      case 'completed':
+        // Stream completed - just update the last processed time
+        metrics.lastProcessedAt = Date.now();
         break;
     }
   }
@@ -599,15 +612,15 @@ export class StreamManagementService implements OnModuleInit, OnModuleDestroy {
     const now = Date.now();
 
     let totalBufferSize = 0;
-    let totalProcessed = 0;
+    let _totalProcessed = 0;
     let totalDropped = 0;
     let totalBackpressureEvents = 0;
     let maxLatency = 0;
-    let recentActivity = 0;
+    let _recentActivity = 0;
 
     streams.forEach((stream) => {
       totalBufferSize += stream.metrics.bufferSize;
-      totalProcessed += stream.metrics.itemsProcessed;
+      _totalProcessed += stream.metrics.itemsProcessed;
       totalDropped += stream.metrics.itemsDropped;
       totalBackpressureEvents += stream.metrics.backpressureEvents;
 
@@ -617,7 +630,7 @@ export class StreamManagementService implements OnModuleInit, OnModuleDestroy {
 
       if (now - stream.lastActivityAt < 60000) {
         // Active in last minute
-        recentActivity++;
+        _recentActivity++;
       }
     });
 

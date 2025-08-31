@@ -1,7 +1,8 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject, Optional } from '@nestjs/common';
 import { BehaviorSubject, Observable, Subscription, combineLatest } from 'rxjs';
 import { map, distinctUntilChanged, takeUntil } from 'rxjs/operators';
-import { Event, EventStats, StreamMetrics, HandlerStats, HandlerIsolationMetrics, DLQMetrics, EVENT_EMITTER_OPTIONS } from '../interfaces';
+import { Event, EventStats, StreamMetrics, HandlerIsolationMetrics, DLQMetrics, EVENT_EMITTER_OPTIONS } from '../interfaces';
+import { HandlerStats } from '../interfaces/pool.interfaces';
 
 /**
  * Comprehensive system metrics aggregation
@@ -95,7 +96,7 @@ export class MetricsService implements OnModuleInit, OnModuleDestroy {
   };
   private readonly legacyProcessingTimes: number[] = [];
 
-  constructor(@Optional() @Inject(EVENT_EMITTER_OPTIONS) private readonly options: any = {}) {
+  constructor(@Optional() @Inject(EVENT_EMITTER_OPTIONS) private readonly options: Record<string, unknown> = {}) {
     this.config = {
       enabled: true,
       collectionIntervalMs: 5000,
@@ -107,7 +108,7 @@ export class MetricsService implements OnModuleInit, OnModuleDestroy {
         memoryUsage: 80, // 80%
         eventRate: 1000, // events/sec
       },
-      ...this.options?.metrics,
+      ...(this.options?.metrics || {}),
     };
   }
 
@@ -352,7 +353,10 @@ export class MetricsService implements OnModuleInit, OnModuleDestroy {
     if (Object.keys(handlerStats).length > 0) {
       this.logger.log('HANDLER PERFORMANCE:');
       Object.entries(handlerStats).forEach(([name, stats]) => {
-        this.logger.log(`  ${name}: ${stats.execution.totalExecutions} executions, ${stats.successRate.toFixed(1)}% success rate`);
+        if (stats && typeof stats === 'object' && 'execution' in stats && 'successRate' in stats) {
+          const handlerStats = stats as { execution: { totalExecutions: number }; successRate: number };
+          this.logger.log(`  ${name}: ${handlerStats.execution.totalExecutions} executions, ${handlerStats.successRate.toFixed(1)}% success rate`);
+        }
       });
     }
 
@@ -634,13 +638,11 @@ export class MetricsService implements OnModuleInit, OnModuleDestroy {
   private calculateHealth(events: EventStats, streams: StreamMetrics, isolation: HandlerIsolationMetrics, dlq: DLQMetrics) {
     const alerts: string[] = [];
     let score = 100;
-    let healthy = true;
     let status: 'healthy' | 'degraded' | 'critical' = 'healthy';
 
     if (events.errorRate > 5) {
       alerts.push('High error rate detected');
       score -= 20;
-      healthy = false;
       status = 'degraded';
     }
 

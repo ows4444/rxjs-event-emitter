@@ -4,15 +4,7 @@ export { PersistenceService } from './persistence.service';
 export { MetricsService, EventMetrics, SystemMetrics, MetricsConfig } from './metrics.service';
 export { DeadLetterQueueService } from './dead-letter-queue.service';
 export { HandlerPoolService } from './handler-pool.service';
-export {
-  DependencyAnalyzerService,
-  HandlerDependency,
-  DependencyType,
-  DependencyStrength,
-  CircularDependency,
-  DependencyAnalysisResult,
-  ExecutionPlan,
-} from './dependency-analyzer.service';
+export { DependencyAnalyzerService } from './dependency-analyzer.service';
 export {
   HandlerExecutionService,
   HandlerExecutionStats,

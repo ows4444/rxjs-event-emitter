@@ -8,14 +8,15 @@ import { takeUntil, switchMap } from 'rxjs/operators';
 import { v4 as uuidv4 } from 'uuid';
 import {
   Event,
-  RegisteredHandler,
   HandlerExecutionContext,
   ExecutionResult,
   HandlerOptions,
   CircuitBreakerState,
   CircuitBreakerMetrics,
   EVENT_EMITTER_OPTIONS,
+  RegisteredHandler,
 } from '../interfaces';
+import type { EventEmitterOptions } from './event-emitter.service';
 import { HandlerPoolService } from './handler-pool.service';
 import { MetricsService } from './metrics.service';
 import { DeadLetterQueueService } from './dead-letter-queue.service';
@@ -76,9 +77,11 @@ export interface EnhancedExecutionContext extends HandlerExecutionContext {
   readonly poolName: string;
   readonly priority: number;
   readonly tags: string[];
-  readonly parentContext?: string;
+  readonly parentContext?: HandlerExecutionContext;
   readonly traceId: string;
   readonly spanId: string;
+  readonly startedAt: number;
+  readonly timeoutAt: number;
 }
 
 /**
@@ -88,6 +91,7 @@ export interface DetailedExecutionResult extends ExecutionResult {
   readonly executionId: string;
   readonly handlerId: string;
   readonly context: EnhancedExecutionContext;
+  readonly needsRetry?: boolean;
   readonly metrics: {
     readonly queueTime: number;
     readonly executionTime: number;
@@ -121,7 +125,7 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
     @Optional() private readonly handlerPoolService?: HandlerPoolService,
     @Optional() private readonly metricsService?: MetricsService,
     @Optional() private readonly dlqService?: DeadLetterQueueService,
-    @Optional() @Inject(EVENT_EMITTER_OPTIONS) private readonly options: any = {},
+    @Optional() @Inject(EVENT_EMITTER_OPTIONS) private readonly options: EventEmitterOptions = {},
   ) {
     this.config = {
       enabled: true,
@@ -144,7 +148,7 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
         maxPerSecond: 100,
         burstSize: 10,
       },
-      ...this.options?.handlerExecution,
+      // Additional handler execution options could be added here
     };
   }
 
@@ -182,7 +186,7 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
   /**
    * Execute a handler with full error recovery and monitoring
    */
-  async executeHandler(handler: RegisteredHandler, event: Event, options: Partial<HandlerOptions> = {}): Promise<DetailedExecutionResult> {
+  async executeHandler(handler: RegisteredHandler, event: Event, options: Partial<HandlerOptions & { pool?: string }> = {}): Promise<DetailedExecutionResult> {
     const handlerId = this.generateHandlerId(handler);
     const executionId = uuidv4();
 
@@ -294,32 +298,31 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
       const startTime = Date.now();
 
       try {
-        let result: unknown;
+        let _result: unknown;
 
         if (this.handlerPoolService) {
           // Execute in isolated pool
-          result = await this.handlerPoolService.executeInPool(context.poolName, async () => await handler.handler(event));
+          _result = await this.handlerPoolService.executeInPool(context.poolName, async () => await handler.handler(event));
         } else {
           // Direct execution
-          result = await handler.handler(event);
+          _result = await handler.handler(event);
         }
 
         const duration = Date.now() - startTime;
 
         return {
           success: true,
-          duration,
-          result,
-          needsRetry: false,
+          handlerId: this.generateHandlerId(handler),
+          executionTime: duration,
         };
       } catch (error) {
         const duration = Date.now() - startTime;
 
         return {
           success: false,
-          duration,
+          handlerId: this.generateHandlerId(handler),
+          executionTime: duration,
           error: error as Error,
-          needsRetry: this.shouldRetry(error as Error, context.retryAttempt),
         };
       }
     };
@@ -329,20 +332,27 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
       .toPromise() as Promise<ExecutionResult>;
   }
 
-  private createExecutionContext(handler: RegisteredHandler, event: Event, executionId: string, options: Partial<HandlerOptions>): EnhancedExecutionContext {
+  private createExecutionContext(
+    handler: RegisteredHandler,
+    event: Event,
+    executionId: string,
+    options: Partial<HandlerOptions & { pool?: string }>,
+  ): EnhancedExecutionContext {
     const handlerId = this.generateHandlerId(handler);
     const timeout = options.timeout || handler.metadata.options.timeout || this.config.defaultTimeout;
-    const poolName = options.pool || handler.metadata.options.pool || 'default';
+    const poolName = options.pool || 'default';
     const priority = options.priority || handler.metadata.options.priority || 5;
 
+    const now = Date.now();
     return {
       executionId,
       event,
       handler,
       poolName,
       correlationId: event.metadata.correlationId || uuidv4(),
-      startedAt: Date.now(),
-      timeoutAt: Date.now() + timeout,
+      startTime: now,
+      startedAt: now,
+      timeoutAt: now + timeout,
       attempt: 1,
       retryAttempt: 0,
       executionTimeout: timeout,
@@ -374,10 +384,10 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
       context,
       metrics: {
         queueTime: context.startedAt - startTime,
-        executionTime: result.duration,
+        executionTime: result.executionTime,
         totalTime,
-        memoryUsed: result.memoryUsed,
-        cpuTime: result.cpuTimeUsed,
+        memoryUsed: result.memoryUsage?.peak,
+        cpuTime: undefined,
       },
     };
   }
@@ -393,7 +403,7 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
 
     return {
       success: false,
-      duration: totalTime,
+      executionTime: totalTime,
       error,
       needsRetry: this.shouldRetry(error, context.retryAttempt),
       executionId,
@@ -408,22 +418,22 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
   }
 
   private handleExecutionSuccess(handlerId: string, result: DetailedExecutionResult): void {
-    this.updateExecutionStats(handlerId, true, result.duration);
+    this.updateExecutionStats(handlerId, true, result.executionTime || 0);
     this.updateCircuitBreaker(handlerId, true);
 
     if (this.metricsService) {
-      this.metricsService.recordHandlerExecution(handlerId, result.duration, true);
+      this.metricsService.recordHandlerExecution(handlerId, result.executionTime || 0, true);
     }
 
     this.executionResults$.next(result);
   }
 
   private async handleExecutionFailure(handlerId: string, event: Event, error: Error, result: DetailedExecutionResult): Promise<void> {
-    this.updateExecutionStats(handlerId, false, result.duration, error);
+    this.updateExecutionStats(handlerId, false, result.executionTime || 0, error);
     this.updateCircuitBreaker(handlerId, false);
 
     if (this.metricsService) {
-      this.metricsService.recordHandlerExecution(handlerId, result.duration, false);
+      this.metricsService.recordHandlerExecution(handlerId, result.executionTime || 0, false);
     }
 
     // Send to dead letter queue if configured
@@ -453,7 +463,7 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
       };
     }
 
-    const newStats: HandlerExecutionStats = {
+    let newStats: HandlerExecutionStats = {
       ...stats,
       totalExecutions: stats.totalExecutions + 1,
       successfulExecutions: success ? stats.successfulExecutions + 1 : stats.successfulExecutions,
@@ -470,9 +480,12 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
 
     if (error && !success) {
       const errorType = error.constructor.name;
-      newStats.errorDistribution = {
-        ...stats.errorDistribution,
-        [errorType]: (stats.errorDistribution[errorType] || 0) + 1,
+      newStats = {
+        ...newStats,
+        errorDistribution: {
+          ...stats.errorDistribution,
+          [errorType]: (stats.errorDistribution[errorType] || 0) + 1,
+        },
       };
     }
 
@@ -481,61 +494,75 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
   }
 
   private updateCircuitBreaker(handlerId: string, success: boolean): void {
-    let cb = this.circuitBreakers.get(handlerId);
+    const currentCb = this.circuitBreakers.get(handlerId);
 
-    if (!cb) {
-      cb = {
+    let updatedCb;
+    if (!currentCb) {
+      updatedCb = {
         state: CircuitBreakerState.CLOSED,
-        failureCount: 0,
-        successCount: 0,
-        lastFailureTime: 0,
-        lastSuccessTime: 0,
-        nextAttemptTime: 0,
+        failureCount: success ? 0 : 1,
+        successCount: success ? 1 : 0,
+        lastFailureTime: success ? undefined : Date.now(),
+        lastSuccessTime: success ? Date.now() : undefined,
+        nextAttemptTime: undefined,
         failureRate: 0,
         config: this.config.circuitBreaker,
       };
-    }
-
-    if (success) {
-      cb.successCount++;
-      cb.lastSuccessTime = Date.now();
-
-      if (cb.state === CircuitBreakerState.HALF_OPEN) {
-        cb.state = CircuitBreakerState.CLOSED;
-        cb.failureCount = 0;
-      }
     } else {
-      cb.failureCount++;
-      cb.lastFailureTime = Date.now();
+      if (success) {
+        updatedCb = {
+          ...currentCb,
+          successCount: currentCb.successCount + 1,
+          lastSuccessTime: Date.now(),
+          state: currentCb.state === CircuitBreakerState.HALF_OPEN ? CircuitBreakerState.CLOSED : currentCb.state,
+          failureCount: currentCb.state === CircuitBreakerState.HALF_OPEN ? 0 : currentCb.failureCount,
+        };
+      } else {
+        updatedCb = {
+          ...currentCb,
+          failureCount: currentCb.failureCount + 1,
+          lastFailureTime: Date.now(),
+        };
+      }
     }
 
-    // Update failure rate
-    //     const totalRequests = cb.successCount + cb.failureCount;
-    //     cb.failureRate = totalRequests > 0 ? (cb.failureCount / totalRequests) * 100 : 0;
-    //
-    //     // Update circuit breaker state
-    //     if (cb.state === CircuitBreakerState.CLOSED &&
-    //         totalRequests >= cb.config.minimumThroughput &&
-    //         cb.failureRate >= cb.config.failureThreshold) {
-    //       cb.state = CircuitBreakerState.OPEN;
-    //       cb.nextAttemptTime = Date.now() + cb.config.recoveryTimeout;
-    //       this.logger.warn(`Circuit breaker opened for handler ${handlerId}`);
-    //     } else if (cb.state === CircuitBreakerState.OPEN &&
-    //                Date.now() >= cb.nextAttemptTime) {
-    //       cb.state = CircuitBreakerState.HALF_OPEN;
-    //       this.logger.info(`Circuit breaker half-open for handler ${handlerId}`);
-    //     }
-    //
-    //     this.circuitBreakers.set(handlerId, cb);
-    //
-    //     // Update stats with circuit breaker state
-    //     const stats = this.executionStats.get(handlerId);
-    //     if (stats) {
-    //       this.executionStats.set(handlerId, {
-    //         ...stats,
-    //         circuitBreakerState: cb.state
-    //       });
-    //     }
+    this.circuitBreakers.set(handlerId, updatedCb);
+
+    // Update failure rate and circuit breaker state
+    const totalRequests = updatedCb.successCount + updatedCb.failureCount;
+    const failureRate = totalRequests > 0 ? (updatedCb.failureCount / totalRequests) * 100 : 0;
+
+    // Create updated circuit breaker with new failure rate and potential state changes
+    let finalCb = { ...updatedCb, failureRate };
+
+    if (
+      finalCb.state === CircuitBreakerState.CLOSED &&
+      totalRequests >= (finalCb.config.minimumThroughput ?? 5) &&
+      failureRate >= (finalCb.config.failureThreshold ?? 50)
+    ) {
+      finalCb = {
+        ...finalCb,
+        state: CircuitBreakerState.OPEN,
+        nextAttemptTime: Date.now() + (finalCb.config.recoveryTimeout ?? 30000),
+      } as any;
+      this.logger.warn(`Circuit breaker opened for handler ${handlerId}`);
+    } else if (finalCb.state === CircuitBreakerState.OPEN && finalCb.nextAttemptTime && Date.now() >= finalCb.nextAttemptTime) {
+      const halfOpenState: CircuitBreakerMetrics = {
+        state: CircuitBreakerState.HALF_OPEN,
+        failureCount: finalCb.failureCount,
+        successCount: finalCb.successCount,
+        lastFailureTime: finalCb.lastFailureTime,
+        lastSuccessTime: finalCb.lastSuccessTime,
+        nextAttemptTime: finalCb.nextAttemptTime,
+        failureRate: finalCb.failureRate,
+        config: finalCb.config,
+      };
+      finalCb = halfOpenState as any;
+      this.logger.log(`Circuit breaker half-open for handler ${handlerId}`);
+    }
+
+    // Store the final updated circuit breaker
+    this.circuitBreakers.set(handlerId, finalCb);
   }
 
   private isCircuitOpen(handlerId: string): boolean {
@@ -555,34 +582,38 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
     }
 
     // Refill tokens
-    //     const timePassed = now - limiter.lastRefill;
-    //     const tokensToAdd = Math.floor(timePassed / 1000) * this.config.rateLimit.maxPerSecond;
-    //     limiter.tokens = Math.min(this.config.rateLimit.burstSize, limiter.tokens + tokensToAdd);
-    //     limiter.lastRefill = now;
-    //
-    //     if (limiter.tokens > 0) {
-    //       limiter.tokens--;
-    //       return true;
-    //     }
-    //
-    //     return false;
+    const timePassed = now - limiter.lastRefill;
+    const tokensToAdd = Math.floor(timePassed / 1000) * (this.config.rateLimit.maxPerSecond ?? 10);
+    const updatedLimiter = {
+      tokens: Math.min(this.config.rateLimit.burstSize ?? 10, limiter.tokens + tokensToAdd),
+      lastRefill: now,
+    };
+
+    this.rateLimiters.set(handlerId, updatedLimiter);
+
+    if (updatedLimiter.tokens > 0) {
+      this.rateLimiters.set(handlerId, { ...updatedLimiter, tokens: updatedLimiter.tokens - 1 });
+      return true;
+    }
+
+    return false;
   }
 
   private shouldRetry(error: Error, attempt: number): boolean {
     if (attempt >= this.config.maxRetries) return false;
 
     // Don't retry certain types of errors
-    //     if (error.message.includes('PERMANENT') ||
-    //         error.message.includes('VALIDATION') ||
-    //         error.message.includes('UNAUTHORIZED')) {
-    //       return false;
-    //     }
-    //
-    //     return true;
+    if (error.message.includes('PERMANENT') || error.message.includes('VALIDATION') || error.message.includes('UNAUTHORIZED')) {
+      return false;
+    }
+
+    return true;
   }
 
   private generateHandlerId(handler: RegisteredHandler): string {
-    return `${handler.instance.constructor.name}.${handler.methodName}@${handler.metadata.eventName}`;
+    const instanceName = handler.metadata.className || 'Unknown';
+    const methodName = handler.metadata.methodName || 'handle';
+    return `${instanceName}.${methodName}@${handler.metadata.eventName}`;
   }
 
   private setupExecutionMonitoring(): void {
@@ -605,7 +636,7 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
   }
 
   private startPeriodicCleanup(): void {
-    const cleanupInterval = setInterval(() => {
+    const _cleanupInterval = setInterval(() => {
       this.cleanupOldStats();
       this.cleanupRateLimiters();
     }, 300000); // Every 5 minutes
@@ -616,7 +647,7 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
   }
 
   private cleanupOldStats(): void {
-    const cutoffTime = Date.now() - 3600000; // 1 hour ago
+    const _cutoffTime = Date.now() - 3600000; // 1 hour ago
     //     let cleanedCount = 0;
     //
     //     for (const [handlerId, stats] of this.executionStats) {
@@ -634,7 +665,7 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
   }
 
   private cleanupRateLimiters(): void {
-    const cutoffTime = Date.now() - 300000; // 5 minutes ago
+    const _cutoffTime = Date.now() - 300000; // 5 minutes ago
     //     let cleanedCount = 0;
     //
     //     for (const [handlerId, limiter] of this.rateLimiters) {

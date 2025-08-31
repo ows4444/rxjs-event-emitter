@@ -110,6 +110,7 @@ export class EventEmitterModule implements OnModuleInit {
 
   constructor(
     private readonly handlerDiscovery: HandlerDiscoveryService,
+    private readonly eventEmitter: EventEmitterService,
     private readonly metricsService: MetricsService,
     private readonly dependencyAnalyzer: DependencyAnalyzerService,
   ) {}
@@ -120,7 +121,8 @@ export class EventEmitterModule implements OnModuleInit {
     try {
       // 1. Discover and register all event handlers
       this.logger.debug('Step 1: Discovering event handlers...');
-      const handlers = this.handlerDiscovery.discoverHandlers();
+      this.handlerDiscovery.discoverHandlers();
+      const handlers = this.eventEmitter.getAllHandlers();
       this.logger.log(`Event handlers discovered: ${handlers.length} handlers found`);
 
       // 2. Analyze handler dependencies
@@ -138,7 +140,9 @@ export class EventEmitterModule implements OnModuleInit {
       // 3. Generate execution plan
       const handlerNames = handlers.map((h) => h.metadata.eventName);
       const executionPlan = this.dependencyAnalyzer.generateExecutionPlan(handlerNames);
-      this.logger.log(`Execution plan generated: ${executionPlan.totalPhases} phases, ${executionPlan.parallelizationOpportunities} parallel opportunities`);
+      this.logger.log(
+        `Execution plan generated: ${String(executionPlan.totalPhases)} phases, ${String(executionPlan.parallelizationOpportunities)} parallel opportunities`,
+      );
 
       // 4. Log system health
       const systemMetrics = this.metricsService.getCurrentSystemMetrics();
@@ -155,7 +159,7 @@ export class EventEmitterModule implements OnModuleInit {
 
       this.logger.log('Enhanced EventEmitter Module  initialized successfully');
       this.logger.log('='.repeat(60));
-    } catch (error) {
+    } catch (error: unknown) {
       this.logger.error('Failed to initialize Enhanced EventEmitter Module :', error instanceof Error ? error.stack : String(error));
       throw error;
     }

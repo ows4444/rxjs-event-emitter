@@ -2,7 +2,7 @@ import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Inject, Optional } f
 import { BehaviorSubject, Subject, EMPTY, Observable } from 'rxjs';
 import { bufferTime, filter, groupBy, mergeMap, catchError, share, takeUntil, tap } from 'rxjs/operators';
 import { v4 as uuidv4 } from 'uuid';
-import { Event, EmitOptions, EVENT_EMITTER_OPTIONS, RegisteredHandler } from '../interfaces';
+import { Event, EmitOptions, EVENT_EMITTER_OPTIONS, EventStatus, RegisteredHandler } from '../interfaces';
 import { MetricsService } from './metrics.service';
 import { PersistenceService } from './persistence.service';
 import { DeadLetterQueueService } from './dead-letter-queue.service';
@@ -128,8 +128,10 @@ export class EventEmitterService implements OnModuleInit, OnModuleDestroy {
     );
 
     processedEvents$.subscribe({
-      next: () => {},
-      error: (error) => this.logger.error('Event processing pipeline error:', error),
+      next: () => {
+        // Event processed - no action needed
+      },
+      error: (error: unknown) => this.logger.error('Event processing pipeline error:', error),
       complete: () => this.logger.log('Event processing pipeline completed'),
     });
   }
@@ -151,15 +153,13 @@ export class EventEmitterService implements OnModuleInit, OnModuleDestroy {
 
     const promises = handlers.map(async (handler) => {
       try {
-        let result: unknown;
-
         // Use advanced handler execution if available
         if (this.advancedFeaturesEnabled && this.handlerExecutionService) {
-          const executionResult = await this.handlerExecutionService.executeHandler(handler, event);
-          result = executionResult.result;
+          const _executionResult = await this.handlerExecutionService.executeHandler(handler, event);
+          // Execution completed (result is already handled by the execution service)
         } else {
           // Fallback to basic execution with timeout
-          result = await Promise.race([
+          await Promise.race([
             handler.handler(event),
             new Promise((_, reject) => setTimeout(() => reject(new Error('Handler timeout')), this.options.defaultTimeout)),
           ]);
@@ -172,8 +172,8 @@ export class EventEmitterService implements OnModuleInit, OnModuleDestroy {
         }
 
         this.logger.debug(`Handler executed successfully for event: ${event.metadata.name}`);
-      } catch (error) {
-        const executionTime = Date.now() - startTime;
+      } catch (error: unknown) {
+        const _executionTime = Date.now() - startTime;
         this.logger.error(`Handler failed for event ${event.metadata.name}:`, error instanceof Error ? error.message : String(error));
 
         // Record failed execution metrics
@@ -194,7 +194,7 @@ export class EventEmitterService implements OnModuleInit, OnModuleDestroy {
     await Promise.allSettled(promises);
   }
 
-  emit<T = any>(eventName: string, payload: T, options: EmitOptions = {}): Promise<void> {
+  emit<T = unknown>(eventName: string, payload: T, options: EmitOptions = {}): Promise<void> {
     return new Promise((resolve, reject) => {
       if (this.isShuttingDown$.value) {
         reject(new Error('EventEmitterService is shutting down'));
@@ -230,25 +230,19 @@ export class EventEmitterService implements OnModuleInit, OnModuleDestroy {
 
   on(eventName: string, handler: (event: Event) => Promise<void>): void {
     // Create a basic RegisteredHandler for backward compatibility
+    const handlerId = `anon_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const registeredHandler: RegisteredHandler = {
+      eventName,
       handler,
+      instance: this,
+      options: {},
+      handlerId,
       metadata: {
         eventName,
         options: {},
-      },
-      instance: this,
-      methodName: 'anonymousHandler',
-      poolName: 'default',
-      priority: 5,
-      registeredAt: Date.now(),
-      stats: {
-        totalExecutions: 0,
-        successfulExecutions: 0,
-        failedExecutions: 0,
-        averageExecutionTime: 0,
-        maxExecutionTime: 0,
-        successRate: 100,
-        errorDistribution: {},
+        className: 'EventEmitterService',
+        methodName: 'handle',
+        handlerId,
       },
     };
 
@@ -318,12 +312,12 @@ export class EventEmitterService implements OnModuleInit, OnModuleDestroy {
   }
 
   // Enhanced emit with persistence support
-  async emitWithPersistence<T = any>(eventName: string, payload: T, options: EmitOptions = {}): Promise<void> {
+  async emitWithPersistence<T = unknown>(eventName: string, payload: T, options: EmitOptions = {}): Promise<void> {
     const event = this.createEvent(eventName, payload, options);
 
     // Persist event if persistence is enabled
     if (this.advancedFeaturesEnabled && this.persistenceService && this.options.enablePersistence) {
-      await this.persistenceService.save(event, 'PENDING' as any);
+      await this.persistenceService.save(event, EventStatus.PENDING);
     }
 
     return this.emit(eventName, payload, options);

@@ -5,85 +5,17 @@
 import { Injectable, Logger, OnModuleInit, Inject, Optional } from '@nestjs/common';
 import { DiscoveryService, ModuleRef } from '@nestjs/core';
 import { BehaviorSubject, Observable } from 'rxjs';
-import { RegisteredHandler, EVENT_EMITTER_OPTIONS } from '../interfaces';
-
-/**
- * Dependency relationship between handlers
- */
-export interface HandlerDependency {
-  readonly handler: string;
-  readonly dependsOn: string;
-  readonly type: DependencyType;
-  readonly strength: DependencyStrength;
-  readonly metadata?: Record<string, unknown>;
-}
-
-/**
- * Types of dependencies
- */
-export enum DependencyType {
-  SEQUENTIAL = 'sequential', // Handler must execute after another
-  CONDITIONAL = 'conditional', // Handler executes if another succeeds
-  EXCLUSIVE = 'exclusive', // Handlers cannot run simultaneously
-  RESOURCE = 'resource', // Shared resource dependency
-  DATA = 'data', // Data dependency (output -> input)
-}
-
-/**
- * Dependency strength levels
- */
-export enum DependencyStrength {
-  WEAK = 'weak', // Soft dependency, can proceed without
-  STRONG = 'strong', // Hard dependency, must wait
-  CRITICAL = 'critical', // Critical dependency, failure propagates
-}
-
-/**
- * Circular dependency information
- */
-export interface CircularDependency {
-  readonly cycle: string[];
-  readonly type: 'direct' | 'indirect';
-  readonly severity: 'warning' | 'error';
-  readonly suggestedResolution: string[];
-}
-
-/**
- * Dependency analysis result
- */
-export interface DependencyAnalysisResult {
-  readonly totalHandlers: number;
-  readonly totalDependencies: number;
-  readonly circularDependencies: CircularDependency[];
-  readonly isolatedHandlers: string[];
-  readonly criticalPath: string[];
-  readonly maxDepth: number;
-  readonly analysisTimestamp: number;
-  readonly warnings: string[];
-  readonly errors: string[];
-}
-
-/**
- * Execution order information
- */
-export interface ExecutionPlan {
-  readonly phases: ExecutionPhase[];
-  readonly totalPhases: number;
-  readonly estimatedExecutionTime: number;
-  readonly parallelizationOpportunities: number;
-  readonly bottlenecks: string[];
-}
-
-/**
- * Execution phase (handlers that can run in parallel)
- */
-export interface ExecutionPhase {
-  readonly phase: number;
-  readonly handlers: string[];
-  readonly dependencies: HandlerDependency[];
-  readonly estimatedDuration: number;
-  readonly canRunInParallel: boolean;
-}
+import {
+  RegisteredHandler,
+  EVENT_EMITTER_OPTIONS,
+  HandlerDependency,
+  DependencyType,
+  DependencyStrength,
+  DependencyAnalysisResult,
+  ExecutionPlan,
+  ExecutionPhase,
+  CircularDependency,
+} from '../interfaces';
 
 /**
  * Dependency configuration
@@ -116,7 +48,7 @@ export class DependencyAnalyzerService implements OnModuleInit {
   constructor(
     private readonly discoveryService: DiscoveryService,
     private readonly moduleRef: ModuleRef,
-    @Optional() @Inject(EVENT_EMITTER_OPTIONS) private readonly options: any = {},
+    @Optional() @Inject(EVENT_EMITTER_OPTIONS) private readonly options: Record<string, unknown> = {},
   ) {
     this.config = {
       enabled: true,
@@ -129,7 +61,7 @@ export class DependencyAnalyzerService implements OnModuleInit {
         maxParallelHandlers: 5,
         dependencyTimeout: 30000,
       },
-      ...this.options?.dependencyAnalyzer,
+      ...(this.options?.dependencyAnalyzer || {}),
     };
   }
 
@@ -155,7 +87,7 @@ export class DependencyAnalyzerService implements OnModuleInit {
     if (!this.config.enabled) return;
 
     handlers.forEach((handler) => {
-      this.handlers.set(handler.metadata.eventName, handler);
+      this.handlers.set(handler.eventName, handler);
     });
 
     this.analyzeHandlerDependencies();
@@ -431,9 +363,9 @@ export class DependencyAnalyzerService implements OnModuleInit {
       const metadata = handler.metadata;
 
       // Check for explicit dependencies in metadata
-      if (metadata.dependencies) {
-        for (const dep of metadata.dependencies) {
-          this.addDependency(eventName, dep, DependencyType.SEQUENTIAL);
+      if (metadata.options.dependencies) {
+        for (const dep of metadata.options.dependencies) {
+          this.addDependency(eventName, String(dep), DependencyType.SEQUENTIAL);
         }
       }
 
@@ -454,10 +386,16 @@ export class DependencyAnalyzerService implements OnModuleInit {
         const cycle = path.slice(cycleStart).concat(handler);
         circular.push({
           cycle,
-          type: cycle.length === 2 ? 'direct' : 'indirect',
+          eventNames: cycle, // Handler IDs can serve as event names for now
           severity: this.config.strictMode ? 'error' : 'warning',
-          suggestedResolution: this.suggestResolution(cycle),
-        });
+          autoFixable: false,
+          metadata: {
+            length: cycle.length,
+            detectionMethod: 'depth-first-search',
+            detectedAt: Date.now(),
+            complexity: cycle.length > 2 ? cycle.length * 0.5 : 1,
+          },
+        } as CircularDependency);
         return true;
       }
 
