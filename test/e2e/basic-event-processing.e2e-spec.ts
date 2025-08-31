@@ -2,7 +2,6 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { Injectable, Module } from '@nestjs/common';
 import { EventEmitterModule } from '../../src/modules/rx-event-emitter/event-emitter.module';
 import { EventEmitterService } from '../../src/modules/rx-event-emitter/services/event-emitter.service';
-import { MetricsService } from '../../src/modules/rx-event-emitter/services/metrics.service';
 import { EventHandler } from '../../src/modules/rx-event-emitter/decorators/event-handler.decorator';
 import { Event, EventPriority } from '../../src/modules/rx-event-emitter/interfaces/core.interfaces';
 
