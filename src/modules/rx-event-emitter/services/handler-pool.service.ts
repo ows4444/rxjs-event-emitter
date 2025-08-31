@@ -3,8 +3,7 @@
  */
 
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Inject, Optional } from '@nestjs/common';
-import { BehaviorSubject, Observable, Subject, from, timer } from 'rxjs';
-import { concatMap, catchError, timeout, finalize, takeUntil } from 'rxjs/operators';
+import { BehaviorSubject, Observable, Subject } from 'rxjs';
 import {
   HandlerPool,
   HandlerPoolConfig,
@@ -15,7 +14,6 @@ import {
   PoolMetrics,
   IsolationStrategy,
   CircuitBreakerState,
-  CircuitBreakerMetrics,
   EVENT_EMITTER_OPTIONS,
 } from '../interfaces';
 

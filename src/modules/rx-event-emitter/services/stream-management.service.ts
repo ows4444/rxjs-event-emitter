@@ -3,33 +3,25 @@
  */
 
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject, Optional } from '@nestjs/common';
-import { BehaviorSubject, Observable, Subject, Subscription, fromEvent, timer, interval, EMPTY, throwError, merge, combineLatest } from 'rxjs';
+import { BehaviorSubject, Observable, Subject, Subscription, timer, EMPTY, throwError } from 'rxjs';
 import {
   takeUntil,
   catchError,
   retry,
-  retryWhen,
-  delay,
-  delayWhen,
   debounceTime,
   throttleTime,
   bufferTime,
   bufferCount,
-  groupBy,
   mergeMap,
   concatMap,
   switchMap,
   exhaustMap,
   share,
-  shareReplay,
-  distinctUntilChanged,
   filter,
-  map,
   tap,
   finalize,
-  timeout,
 } from 'rxjs/operators';
-import { Event, StreamMetrics, EVENT_EMITTER_OPTIONS } from '../interfaces';
+import { StreamMetrics, EVENT_EMITTER_OPTIONS } from '../interfaces';
 
 /**
  * Stream configuration options
@@ -485,13 +477,13 @@ export class StreamManagementService implements OnModuleInit, OnModuleDestroy {
       case ErrorStrategy.RETRY:
         if (config.errorHandling.exponentialBackoff) {
           return stream.pipe(
-            retryWhen((errors) =>
-              errors.pipe(
-                delayWhen((_, i) => timer(config.errorHandling.retryDelay * Math.pow(2, i))),
-                tap((error) => this.logger.warn(`Stream retry ${i + 1}:`, error)),
-                takeUntil(timer(config.errorHandling.maxRetries * config.errorHandling.retryDelay)),
-              ),
-            ),
+            retry({
+              count: config.errorHandling.maxRetries,
+              delay: (error, retryCount) => {
+                this.logger.warn(`Stream retry ${retryCount}:`, error);
+                return timer(config.errorHandling.retryDelay * Math.pow(2, retryCount - 1));
+              },
+            }),
           );
         } else {
           return stream.pipe(
@@ -514,9 +506,9 @@ export class StreamManagementService implements OnModuleInit, OnModuleDestroy {
       case ErrorStrategy.CIRCUIT_BREAKER:
         // Simplified circuit breaker - would need full implementation
         return stream.pipe(
-          catchError((error) => {
+          catchError((error: Error) => {
             this.logger.error('Stream circuit breaker triggered:', error);
-            return throwError(error);
+            return throwError(() => error);
           }),
         );
 

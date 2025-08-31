@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject, Optional } from '@nestjs/common';
-import { BehaviorSubject, Observable, interval, Subscription, combineLatest } from 'rxjs';
+import { BehaviorSubject, Observable, Subscription, combineLatest } from 'rxjs';
 import { map, distinctUntilChanged, takeUntil } from 'rxjs/operators';
 import { Event, EventStats, StreamMetrics, HandlerStats, HandlerIsolationMetrics, DLQMetrics, EVENT_EMITTER_OPTIONS } from '../interfaces';
 
@@ -287,17 +287,6 @@ export class MetricsService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  // Legacy method for backward compatibility
-  getEventStats(eventName: string): { count: number; successRate: number } {
-    const totalCount = this.legacyMetrics.eventsByName.get(eventName) || 0;
-    const successRate = totalCount > 0 ? ((totalCount - this.legacyMetrics.failedEvents) / totalCount) * 100 : 100;
-
-    return {
-      count: totalCount,
-      successRate: Math.round(successRate * 100) / 100,
-    };
-  }
-
   reset(): void {
     // Reset modern metrics
     this.eventStats$.next(this.createInitialEventStats());
@@ -363,7 +352,7 @@ export class MetricsService implements OnModuleInit, OnModuleDestroy {
     if (Object.keys(handlerStats).length > 0) {
       this.logger.log('HANDLER PERFORMANCE:');
       Object.entries(handlerStats).forEach(([name, stats]) => {
-        this.logger.log(`  ${name}: ${stats.totalExecutions} executions, ${stats.successRate.toFixed(1)}% success rate`);
+        this.logger.log(`  ${name}: ${stats.execution.totalExecutions} executions, ${stats.successRate.toFixed(1)}% success rate`);
       });
     }
 

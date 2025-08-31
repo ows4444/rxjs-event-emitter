@@ -3,9 +3,9 @@
  */
 
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Inject, Optional } from '@nestjs/common';
-import { BehaviorSubject, EMPTY, from, interval, Subject, Subscription, timer } from 'rxjs';
+import { BehaviorSubject, EMPTY, Subject, Subscription, timer } from 'rxjs';
 import { catchError, switchMap, takeUntil, tap, filter } from 'rxjs/operators';
-import { Event, DLQEntry, DLQConfig, DLQMetrics, RetryPolicy, RetryCondition, PolicyStats, EVENT_EMITTER_OPTIONS } from '../interfaces';
+import { Event, DLQEntry, DLQConfig, DLQMetrics, RetryPolicy, PolicyStats, EVENT_EMITTER_OPTIONS } from '../interfaces';
 import { EventEmitterService } from './event-emitter.service';
 import { PersistenceService } from './persistence.service';
 import { MetricsService } from './metrics.service';
@@ -148,7 +148,7 @@ export class DeadLetterQueueService implements OnModuleInit, OnModuleDestroy {
     const subscription = this.dlqEvents$
       .pipe(
         takeUntil(this.shutdown$),
-        tap((entry) => this.processNewEntry(entry)),
+        tap((entry) => void this.processNewEntry(entry)),
         catchError((error) => {
           this.logger.error('Error processing DLQ entry:', error);
           return EMPTY;

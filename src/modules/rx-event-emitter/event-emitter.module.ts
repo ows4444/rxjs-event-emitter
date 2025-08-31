@@ -15,7 +15,7 @@ import {
 import { EVENT_EMITTER_OPTIONS } from './interfaces';
 
 /**
- * Enhanced NestJS implementation of RxJS Event Emitter Module 
+ * Enhanced NestJS implementation of RxJS Event Emitter Module
  *
  * Advanced Features:
  * - Automatic handler discovery using NestJS DiscoveryService

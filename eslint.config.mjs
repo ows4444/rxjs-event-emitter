@@ -151,7 +151,7 @@ export default tseslint.config(
     rules: {
       '@typescript-eslint/no-unsafe-assignment': 'off', // Common in DI patterns
       '@typescript-eslint/no-unsafe-member-access': 'off', // Common in NestJS services
-      'max-params': ['warn', 6], // NestJS services can have many dependencies
+      'max-params': ['warn', 12], // NestJS services can have many dependencies
     },
   },
   {

@@ -3,8 +3,8 @@
  */
 
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject, Optional } from '@nestjs/common';
-import { BehaviorSubject, Observable, Subject, from, timer, race, throwError, EMPTY } from 'rxjs';
-import { catchError, timeout, retry, finalize, tap, takeUntil, switchMap } from 'rxjs/operators';
+import { BehaviorSubject, Observable, Subject, from, timer, race, throwError } from 'rxjs';
+import { takeUntil, switchMap } from 'rxjs/operators';
 import { v4 as uuidv4 } from 'uuid';
 import {
   Event,

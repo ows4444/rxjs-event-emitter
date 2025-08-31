@@ -5,7 +5,7 @@
 import { Injectable, Logger, OnModuleInit, Inject, Optional } from '@nestjs/common';
 import { DiscoveryService, ModuleRef } from '@nestjs/core';
 import { BehaviorSubject, Observable } from 'rxjs';
-import { RegisteredHandler, HandlerMetadata, EVENT_EMITTER_OPTIONS } from '../interfaces';
+import { RegisteredHandler, EVENT_EMITTER_OPTIONS } from '../interfaces';
 
 /**
  * Dependency relationship between handlers
@@ -289,7 +289,7 @@ export class DependencyAnalyzerService implements OnModuleInit {
         visit(handler);
       }
       return result;
-    } catch (error) {
+    } catch (_error) {
       this.logger.warn('Cannot determine execution order due to circular dependencies');
       return handlers; // Return original order as fallback
     }

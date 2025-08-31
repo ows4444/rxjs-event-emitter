@@ -1,13 +1,13 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Inject, Optional } from '@nestjs/common';
 import { BehaviorSubject, Subject, EMPTY, Observable } from 'rxjs';
-import { bufferTime, filter, groupBy, mergeMap, catchError, share, takeUntil, tap, timeout, retry } from 'rxjs/operators';
+import { bufferTime, filter, groupBy, mergeMap, catchError, share, takeUntil, tap } from 'rxjs/operators';
 import { v4 as uuidv4 } from 'uuid';
 import { Event, EmitOptions, EVENT_EMITTER_OPTIONS, RegisteredHandler } from '../interfaces';
 import { MetricsService } from './metrics.service';
 import { PersistenceService } from './persistence.service';
 import { DeadLetterQueueService } from './dead-letter-queue.service';
 import { HandlerExecutionService } from './handler-execution.service';
-import { StreamManagementService } from './stream-management.service';
+import { StreamManagementService, StreamType } from './stream-management.service';
 import { HandlerPoolService } from './handler-pool.service';
 
 export interface EventEmitterOptions {
@@ -45,13 +45,14 @@ export class EventEmitterService implements OnModuleInit, OnModuleDestroy {
   // Enhanced integration flags
   private readonly advancedFeaturesEnabled: boolean;
 
-  private readonly defaultOptions: Required<EventEmitterOptions> = {
-    maxConcurrency: 10,
-    bufferTimeMs: 100,
-    defaultTimeout: 30000,
-    enableMetrics: true,
-    enablePersistence: false,
-    enableDeadLetterQueue: false,
+  private readonly defaultOptions: Required<
+    Omit<EventEmitterOptions, 'enableDeadLetterQueue' | 'enableAdvancedFeatures' | 'circuitBreaker' | 'handlerPools' | 'streamManagement'>
+  > = {
+    maxConcurrency: 10, // 10 concurrent events
+    bufferTimeMs: 100, // 100 ms
+    defaultTimeout: 30000, // 30 seconds
+    enableMetrics: true, // Enabled by default
+    enablePersistence: false, // Disabled by default
   };
 
   constructor(
@@ -69,7 +70,7 @@ export class EventEmitterService implements OnModuleInit, OnModuleDestroy {
     // Create managed event stream if stream management is available
     this.managedEventStream$ =
       this.streamManagementService && this.advancedFeaturesEnabled
-        ? this.streamManagementService.createManagedStream('event-bus', this.eventBus$, 'EVENT_BUS' as any)
+        ? this.streamManagementService.createManagedStream('event-bus', this.eventBus$, StreamType.EVENT_BUS)
         : this.eventBus$;
   }
 
@@ -127,7 +128,7 @@ export class EventEmitterService implements OnModuleInit, OnModuleDestroy {
     );
 
     processedEvents$.subscribe({
-      next: () => {}, // Events are processed in the pipeline
+      next: () => {},
       error: (error) => this.logger.error('Event processing pipeline error:', error),
       complete: () => this.logger.log('Event processing pipeline completed'),
     });
