@@ -3,42 +3,38 @@ import { Test } from '@nestjs/testing';
 import { DiscoveryService, ModuleRef } from '@nestjs/core';
 import { firstValueFrom } from 'rxjs';
 import { DependencyAnalyzerService } from '@src/modules/rx-event-emitter/services/dependency-analyzer.service';
-import {
-  RegisteredHandler,
-  HandlerDependency,
-  DependencyType,
-  DependencyStrength,
-  EVENT_EMITTER_OPTIONS,
-  CircularDependency,
-} from '@src/modules/rx-event-emitter/interfaces';
+import type { RegisteredHandler, HandlerMetadata } from '@src/modules/rx-event-emitter/interfaces';
+import { DependencyType, DependencyStrength, EVENT_EMITTER_OPTIONS } from '@src/modules/rx-event-emitter/interfaces';
 
 describe('DependencyAnalyzerService', () => {
   let service: DependencyAnalyzerService;
   let mockModuleRef: jest.Mocked<ModuleRef>;
   let mockDiscoveryService: jest.Mocked<DiscoveryService>;
 
-  const createMockHandler = (overrides: Partial<RegisteredHandler> = {}): RegisteredHandler => ({
-    eventName: 'test.event',
-    handlerName: 'TestHandler',
-    handler: { handle: jest.fn() },
-    options: {},
-    metadata: {
-      isRegistered: true,
-      registeredAt: Date.now(),
-      handlerClass: 'TestHandler',
-    },
-    ...overrides,
-  });
+  const createMockHandler = (overrides: Partial<RegisteredHandler> = {}): RegisteredHandler => {
+    const handlerId = overrides.handlerId || `handler-${Math.random().toString(36).substr(2, 9)}`;
+    const eventName = overrides.eventName || 'test.event';
+    const className = 'TestHandler';
 
-  const createMockDependency = (overrides: Partial<HandlerDependency> = {}): HandlerDependency => ({
-    dependentHandler: 'TestHandler',
-    dependsOn: 'DependencyHandler',
-    dependencyType: DependencyType.EVENT,
-    strength: DependencyStrength.STRONG,
-    eventName: 'dependency.event',
-    description: 'Test dependency',
-    ...overrides,
-  });
+    const metadata: HandlerMetadata = {
+      eventName,
+      options: overrides.options || {},
+      methodName: 'handle',
+      className,
+      handlerId,
+      providerToken: className,
+    };
+
+    return {
+      eventName,
+      handler: jest.fn(),
+      instance: { handle: jest.fn() },
+      options: {},
+      handlerId,
+      metadata,
+      ...overrides,
+    };
+  };
 
   beforeEach(async () => {
     mockModuleRef = {
@@ -61,7 +57,7 @@ describe('DependencyAnalyzerService', () => {
         {
           provide: EVENT_EMITTER_OPTIONS,
           useValue: {
-            dependency: {
+            dependencyAnalyzer: {
               enabled: true,
               autoDetection: true,
               strictMode: false,
@@ -91,7 +87,7 @@ describe('DependencyAnalyzerService', () => {
     });
 
     it('should skip initialization when disabled', async () => {
-      const disabledService = new DependencyAnalyzerService(mockDiscoveryService, mockModuleRef, { dependency: { enabled: false } });
+      const disabledService = new DependencyAnalyzerService(mockDiscoveryService, mockModuleRef, { dependencyAnalyzer: { enabled: false } });
 
       await expect(disabledService.onModuleInit()).resolves.not.toThrow();
     });
@@ -107,252 +103,341 @@ describe('DependencyAnalyzerService', () => {
       await service.onModuleInit();
     });
 
-    it('should register handler dependencies', () => {
-      const handler = createMockHandler({ handlerName: 'UserHandler' });
-      const dependency = createMockDependency({
-        dependentHandler: 'UserHandler',
-        dependsOn: 'EmailHandler',
-        eventName: 'email.send',
+    it('should register multiple handlers', () => {
+      const handlers = [createMockHandler({ eventName: 'user.created' }), createMockHandler({ eventName: 'user.updated' })];
+
+      service.registerHandlers(handlers);
+
+      const analysisResult = service.getCurrentAnalysisResult();
+      expect(analysisResult.totalHandlers).toBe(2);
+    });
+
+    it('should skip registration when disabled', () => {
+      const disabledService = new DependencyAnalyzerService(mockDiscoveryService, mockModuleRef, { dependencyAnalyzer: { enabled: false } });
+
+      const handlers = [createMockHandler()];
+      disabledService.registerHandlers(handlers);
+
+      const analysisResult = disabledService.getCurrentAnalysisResult();
+      expect(analysisResult.totalHandlers).toBe(0);
+    });
+
+    it('should handle handlers with explicit dependencies in metadata', () => {
+      const handler = createMockHandler({
+        eventName: 'user.created',
+        handlerId: 'UserCreatedHandler',
+        metadata: {
+          eventName: 'user.created',
+          options: {
+            dependencies: ['email.service', 'log.service'],
+          },
+          methodName: 'handle',
+          className: 'UserCreatedHandler',
+          handlerId: 'UserCreatedHandler',
+          providerToken: 'UserCreatedHandler',
+        },
       });
 
-      service.registerHandler(handler, [dependency]);
+      service.registerHandlers([handler]);
 
-      const dependencies = service.getHandlerDependencies('UserHandler');
-      expect(dependencies).toHaveLength(1);
-      expect(dependencies[0]).toEqual(dependency);
-    });
-
-    it('should register multiple dependencies for a handler', () => {
-      const handler = createMockHandler({ handlerName: 'UserHandler' });
-      const dependencies = [
-        createMockDependency({ dependsOn: 'EmailHandler', eventName: 'email.send' }),
-        createMockDependency({ dependsOn: 'LogHandler', eventName: 'log.write' }),
-      ];
-
-      service.registerHandler(handler, dependencies);
-
-      const registeredDeps = service.getHandlerDependencies('UserHandler');
-      expect(registeredDeps).toHaveLength(2);
-    });
-
-    it('should update existing handler dependencies', () => {
-      const handler = createMockHandler({ handlerName: 'UserHandler' });
-      const initialDeps = [createMockDependency({ dependsOn: 'EmailHandler' })];
-      const updatedDeps = [createMockDependency({ dependsOn: 'NotificationHandler' })];
-
-      service.registerHandler(handler, initialDeps);
-      service.registerHandler(handler, updatedDeps);
-
-      const dependencies = service.getHandlerDependencies('UserHandler');
-      expect(dependencies).toHaveLength(1);
-      expect(dependencies[0].dependsOn).toBe('NotificationHandler');
-    });
-
-    it('should unregister handler dependencies', () => {
-      const handler = createMockHandler({ handlerName: 'UserHandler' });
-      const dependency = createMockDependency({ dependentHandler: 'UserHandler' });
-
-      service.registerHandler(handler, [dependency]);
-      expect(service.getHandlerDependencies('UserHandler')).toHaveLength(1);
-
-      service.unregisterHandler('UserHandler');
-      expect(service.getHandlerDependencies('UserHandler')).toHaveLength(0);
+      const dependencies = service.getDependencies('user.created');
+      expect(dependencies).toHaveLength(2);
+      expect(dependencies[0].dependsOn).toBe('email.service');
+      expect(dependencies[1].dependsOn).toBe('log.service');
     });
   });
 
-  describe('Dependency Analysis', () => {
+  describe('Dependency Management', () => {
     beforeEach(async () => {
       await service.onModuleInit();
     });
 
-    it('should analyze simple dependency chain', () => {
-      const handlers = [
-        createMockHandler({ handlerName: 'HandlerA', eventName: 'event.a' }),
-        createMockHandler({ handlerName: 'HandlerB', eventName: 'event.b' }),
-      ];
+    it('should add dependency between handlers', () => {
+      service.addDependency('HandlerA', 'HandlerB', DependencyType.SEQUENTIAL, DependencyStrength.STRONG, {
+        reason: 'HandlerA needs HandlerB results',
+      });
 
-      const dependencies = [
-        createMockDependency({
-          dependentHandler: 'HandlerA',
-          dependsOn: 'HandlerB',
-          eventName: 'event.b',
-        }),
-      ];
-
-      service.registerHandler(handlers[0], [dependencies[0]]);
-      service.registerHandler(handlers[1], []);
-
-      const result = service.analyzeDependencies(handlers);
-
-      expect(result).toBeDefined();
-      expect(result.handlers).toHaveLength(2);
-      expect(result.dependencies).toHaveLength(1);
-      expect(result.circularDependencies).toHaveLength(0);
+      const dependencies = service.getDependencies('HandlerA');
+      expect(dependencies).toHaveLength(1);
+      expect(dependencies[0].dependsOn).toBe('HandlerB');
+      expect(dependencies[0].type).toBe(DependencyType.SEQUENTIAL);
+      expect(dependencies[0].strength).toBe(DependencyStrength.STRONG);
     });
 
-    it('should detect circular dependencies', () => {
-      const handlers = [
-        createMockHandler({ handlerName: 'HandlerA', eventName: 'event.a' }),
-        createMockHandler({ handlerName: 'HandlerB', eventName: 'event.b' }),
-      ];
+    it('should add multiple dependencies for same handler', () => {
+      service.addDependency('HandlerA', 'HandlerB');
+      service.addDependency('HandlerA', 'HandlerC');
 
-      const dependencies = [
-        createMockDependency({
-          dependentHandler: 'HandlerA',
-          dependsOn: 'HandlerB',
-          eventName: 'event.b',
-        }),
-        createMockDependency({
-          dependentHandler: 'HandlerB',
-          dependsOn: 'HandlerA',
-          eventName: 'event.a',
-        }),
-      ];
-
-      service.registerHandler(handlers[0], [dependencies[0]]);
-      service.registerHandler(handlers[1], [dependencies[1]]);
-
-      const result = service.analyzeDependencies(handlers);
-
-      expect(result.circularDependencies.length).toBeGreaterThan(0);
-      expect(result.hasCircularDependencies).toBe(true);
+      const dependencies = service.getDependencies('HandlerA');
+      expect(dependencies).toHaveLength(2);
     });
 
-    it('should handle different dependency types', () => {
-      const handler = createMockHandler({ handlerName: 'TestHandler' });
-      const dependencies = [
-        createMockDependency({ dependencyType: DependencyType.EVENT }),
-        createMockDependency({ dependencyType: DependencyType.SERVICE }),
-        createMockDependency({ dependencyType: DependencyType.DATA }),
-      ];
+    it('should remove dependency between handlers', () => {
+      service.addDependency('HandlerA', 'HandlerB');
+      expect(service.getDependencies('HandlerA')).toHaveLength(1);
 
-      service.registerHandler(handler, dependencies);
-
-      const registeredDeps = service.getHandlerDependencies('TestHandler');
-      expect(registeredDeps).toHaveLength(3);
-      expect(registeredDeps.map((d) => d.dependencyType)).toEqual([DependencyType.EVENT, DependencyType.SERVICE, DependencyType.DATA]);
+      const removed = service.removeDependency('HandlerA', 'HandlerB');
+      expect(removed).toBe(true);
+      expect(service.getDependencies('HandlerA')).toHaveLength(0);
     });
 
-    it('should handle different dependency strengths', () => {
-      const handler = createMockHandler({ handlerName: 'TestHandler' });
-      const dependencies = [
-        createMockDependency({ strength: DependencyStrength.WEAK }),
-        createMockDependency({ strength: DependencyStrength.STRONG }),
-        createMockDependency({ strength: DependencyStrength.CRITICAL }),
-      ];
-
-      service.registerHandler(handler, dependencies);
-
-      const result = service.analyzeDependencies([handler]);
-      expect(result.dependencies.map((d) => d.strength)).toEqual([DependencyStrength.WEAK, DependencyStrength.STRONG, DependencyStrength.CRITICAL]);
+    it('should return false when removing non-existent dependency', () => {
+      const removed = service.removeDependency('NonExistent', 'AlsoNonExistent');
+      expect(removed).toBe(false);
     });
 
-    it('should provide analysis metrics', () => {
-      const handlers = [
-        createMockHandler({ handlerName: 'HandlerA' }),
-        createMockHandler({ handlerName: 'HandlerB' }),
-        createMockHandler({ handlerName: 'HandlerC' }),
-      ];
+    it('should skip operations when disabled', () => {
+      const disabledService = new DependencyAnalyzerService(mockDiscoveryService, mockModuleRef, { dependencyAnalyzer: { enabled: false } });
 
-      const dependencies = [
-        createMockDependency({ dependentHandler: 'HandlerA', dependsOn: 'HandlerB' }),
-        createMockDependency({ dependentHandler: 'HandlerB', dependsOn: 'HandlerC' }),
-      ];
+      disabledService.addDependency('HandlerA', 'HandlerB');
+      expect(disabledService.getDependencies('HandlerA')).toHaveLength(0);
 
-      service.registerHandler(handlers[0], [dependencies[0]]);
-      service.registerHandler(handlers[1], [dependencies[1]]);
-      service.registerHandler(handlers[2], []);
+      const removed = disabledService.removeDependency('HandlerA', 'HandlerB');
+      expect(removed).toBe(false);
+    });
 
-      service.analyzeDependencies(handlers);
+    it('should get dependents of a handler', () => {
+      service.addDependency('HandlerA', 'HandlerC');
+      service.addDependency('HandlerB', 'HandlerC');
 
-      const metrics = service.getAnalysisMetrics();
-      expect(metrics).toBeDefined();
-      expect(metrics.totalHandlers).toBe(3);
-      expect(metrics.totalDependencies).toBe(2);
-      expect(metrics.circularDependencies).toBe(0);
+      const dependents = service.getDependents('HandlerC');
+      expect(dependents).toContain('HandlerA');
+      expect(dependents).toContain('HandlerB');
+      expect(dependents).toHaveLength(2);
+    });
+
+    it('should return empty array for non-existent dependencies', () => {
+      const dependencies = service.getDependencies('NonExistent');
+      expect(dependencies).toEqual([]);
+
+      const dependents = service.getDependents('NonExistent');
+      expect(dependents).toEqual([]);
+    });
+
+    it('should clear all dependencies', () => {
+      service.addDependency('HandlerA', 'HandlerB');
+      service.addDependency('HandlerC', 'HandlerD');
+
+      expect(service.getDependencies('HandlerA')).toHaveLength(1);
+      expect(service.getDependencies('HandlerC')).toHaveLength(1);
+
+      service.clearDependencies();
+
+      expect(service.getDependencies('HandlerA')).toHaveLength(0);
+      expect(service.getDependencies('HandlerC')).toHaveLength(0);
     });
   });
 
-  describe('Execution Plan Creation', () => {
+  describe('Circular Dependency Detection', () => {
     beforeEach(async () => {
       await service.onModuleInit();
     });
 
-    it('should create execution plan for independent handlers', () => {
+    it('should detect simple circular dependencies', () => {
+      const handlerA = createMockHandler({ eventName: 'HandlerA', handlerId: 'HandlerA' });
+      const handlerB = createMockHandler({ eventName: 'HandlerB', handlerId: 'HandlerB' });
+
+      service.registerHandlers([handlerA, handlerB]);
+      service.addDependency('HandlerA', 'HandlerB');
+      service.addDependency('HandlerB', 'HandlerA');
+
+      expect(service.hasCircularDependencies()).toBe(true);
+      const circular = service.getCircularDependencies();
+      expect(circular.length).toBeGreaterThan(0);
+    });
+
+    it('should detect complex circular dependencies', () => {
       const handlers = [
-        createMockHandler({ handlerName: 'HandlerA', eventName: 'event.a' }),
-        createMockHandler({ handlerName: 'HandlerB', eventName: 'event.b' }),
+        createMockHandler({ eventName: 'HandlerA', handlerId: 'HandlerA' }),
+        createMockHandler({ eventName: 'HandlerB', handlerId: 'HandlerB' }),
+        createMockHandler({ eventName: 'HandlerC', handlerId: 'HandlerC' }),
       ];
 
-      service.registerHandler(handlers[0], []);
-      service.registerHandler(handlers[1], []);
+      service.registerHandlers(handlers);
+      service.addDependency('HandlerA', 'HandlerB');
+      service.addDependency('HandlerB', 'HandlerC');
+      service.addDependency('HandlerC', 'HandlerA');
 
-      const plan = service.createExecutionPlan(handlers);
-      expect(plan).toBeDefined();
+      expect(service.hasCircularDependencies()).toBe(true);
+      const circular = service.getCircularDependencies();
+      expect(circular).toHaveLength(1);
+      expect(circular[0].cycle).toContain('HandlerA');
+      expect(circular[0].cycle).toContain('HandlerB');
+      expect(circular[0].cycle).toContain('HandlerC');
+    });
+
+    it('should not detect false positives', () => {
+      const handlers = [
+        createMockHandler({ eventName: 'HandlerA', handlerId: 'HandlerA' }),
+        createMockHandler({ eventName: 'HandlerB', handlerId: 'HandlerB' }),
+        createMockHandler({ eventName: 'HandlerC', handlerId: 'HandlerC' }),
+      ];
+
+      service.registerHandlers(handlers);
+      service.addDependency('HandlerA', 'HandlerB');
+      service.addDependency('HandlerB', 'HandlerC');
+
+      expect(service.hasCircularDependencies()).toBe(false);
+      expect(service.getCircularDependencies()).toHaveLength(0);
+    });
+  });
+
+  describe('Execution Order', () => {
+    beforeEach(async () => {
+      await service.onModuleInit();
+    });
+
+    it('should determine execution order for simple dependencies', () => {
+      service.addDependency('HandlerA', 'HandlerB');
+      service.addDependency('HandlerB', 'HandlerC');
+
+      const order = service.getExecutionOrder(['HandlerA', 'HandlerB', 'HandlerC']);
+      expect(order.indexOf('HandlerC')).toBeLessThan(order.indexOf('HandlerB'));
+      expect(order.indexOf('HandlerB')).toBeLessThan(order.indexOf('HandlerA'));
+    });
+
+    it('should handle circular dependencies gracefully', () => {
+      service.addDependency('HandlerA', 'HandlerB');
+      service.addDependency('HandlerB', 'HandlerA');
+
+      const order = service.getExecutionOrder(['HandlerA', 'HandlerB']);
+      expect(order).toEqual(['HandlerA', 'HandlerB']); // Falls back to original order
+    });
+
+    it('should handle independent handlers', () => {
+      const order = service.getExecutionOrder(['HandlerA', 'HandlerB', 'HandlerC']);
+      expect(order).toHaveLength(3);
+      expect(order).toContain('HandlerA');
+      expect(order).toContain('HandlerB');
+      expect(order).toContain('HandlerC');
+    });
+  });
+
+  describe('Execution Plan Generation', () => {
+    beforeEach(async () => {
+      await service.onModuleInit();
+    });
+
+    it('should generate execution plan for independent handlers', () => {
+      const plan = service.generateExecutionPlan(['HandlerA', 'HandlerB', 'HandlerC']);
+
+      expect(plan.phases).toHaveLength(1);
+      expect(plan.phases[0].handlers).toHaveLength(3);
+      expect(plan.phases[0].canRunInParallel).toBe(true);
+      expect(plan.totalPhases).toBe(1);
+      expect(plan.parallelizationOpportunities).toBe(1);
+    });
+
+    it('should generate multi-phase plan for dependent handlers', () => {
+      service.addDependency('HandlerA', 'HandlerB');
+      service.addDependency('HandlerB', 'HandlerC');
+
+      const plan = service.generateExecutionPlan(['HandlerA', 'HandlerB', 'HandlerC']);
+
+      expect(plan.totalPhases).toBeGreaterThan(1);
+      expect(plan.estimatedExecutionTime).toBeGreaterThan(0);
+    });
+
+    it('should handle circular dependencies in execution plan', () => {
+      service.addDependency('HandlerA', 'HandlerB');
+      service.addDependency('HandlerB', 'HandlerA');
+
+      const plan = service.generateExecutionPlan(['HandlerA', 'HandlerB']);
+
       expect(plan.phases).toHaveLength(1);
       expect(plan.phases[0].handlers).toHaveLength(2);
-      expect(plan.canParallelize).toBe(true);
     });
 
-    it('should create execution plan for dependent handlers', () => {
+    it('should identify bottlenecks in execution plan', () => {
+      service.addDependency('HandlerA', 'HandlerD');
+      service.addDependency('HandlerB', 'HandlerD');
+      service.addDependency('HandlerC', 'HandlerD');
+      service.addDependency('HandlerE', 'HandlerD');
+
+      const plan = service.generateExecutionPlan(['HandlerA', 'HandlerB', 'HandlerC', 'HandlerD', 'HandlerE']);
+
+      expect(plan.bottlenecks.some((b) => b.includes('HandlerD'))).toBe(true);
+    });
+
+    it('should handle empty handler list', () => {
+      const plan = service.generateExecutionPlan([]);
+
+      expect(plan.phases).toHaveLength(0);
+      expect(plan.totalPhases).toBe(0);
+      expect(plan.estimatedExecutionTime).toBe(0);
+    });
+  });
+
+  describe('Dependency Validation', () => {
+    beforeEach(async () => {
+      await service.onModuleInit();
+    });
+
+    it('should validate dependencies successfully for valid configuration', () => {
+      const handlerA = createMockHandler({ eventName: 'HandlerA', handlerId: 'HandlerA' });
+      const handlerB = createMockHandler({ eventName: 'HandlerB', handlerId: 'HandlerB' });
+
+      service.registerHandlers([handlerA, handlerB]);
+      service.addDependency('HandlerA', 'HandlerB');
+
+      const validation = service.validateDependencies();
+
+      expect(validation.valid).toBe(true);
+      expect(validation.errors).toHaveLength(0);
+    });
+
+    it('should detect missing handler dependencies', () => {
+      const handlerA = createMockHandler({ eventName: 'HandlerA', handlerId: 'HandlerA' });
+
+      service.registerHandlers([handlerA]);
+      service.addDependency('HandlerA', 'NonExistentHandler');
+
+      const validation = service.validateDependencies();
+
+      expect(validation.valid).toBe(false);
+      expect(validation.errors.some((e) => e.includes('HandlerA depends on non-existent handler NonExistentHandler'))).toBe(true);
+    });
+
+    it('should handle circular dependencies based on configuration', () => {
       const handlers = [
-        createMockHandler({ handlerName: 'HandlerA', eventName: 'event.a' }),
-        createMockHandler({ handlerName: 'HandlerB', eventName: 'event.b' }),
+        createMockHandler({ eventName: 'HandlerA', handlerId: 'HandlerA' }),
+        createMockHandler({ eventName: 'HandlerB', handlerId: 'HandlerB' }),
       ];
 
-      const dependency = createMockDependency({
-        dependentHandler: 'HandlerA',
-        dependsOn: 'HandlerB',
-        eventName: 'event.b',
+      service.registerHandlers(handlers);
+      service.addDependency('HandlerA', 'HandlerB');
+      service.addDependency('HandlerB', 'HandlerA');
+
+      const validation = service.validateDependencies();
+
+      expect(validation.warnings.length).toBeGreaterThan(0);
+      expect(validation.warnings[0]).toContain('Circular dependency');
+    });
+
+    it('should treat circular dependencies as errors in strict mode', async () => {
+      const strictService = new DependencyAnalyzerService(mockDiscoveryService, mockModuleRef, {
+        dependencyAnalyzer: {
+          enabled: true,
+          strictMode: true,
+          circularDependencyHandling: 'error',
+        },
       });
 
-      service.registerHandler(handlers[0], [dependency]);
-      service.registerHandler(handlers[1], []);
+      await strictService.onModuleInit();
 
-      const plan = service.createExecutionPlan(handlers);
-      expect(plan.phases.length).toBeGreaterThan(1);
-      expect(plan.totalPhases).toBeGreaterThan(1);
-    });
-
-    it('should handle execution plan for complex dependency graph', () => {
       const handlers = [
-        createMockHandler({ handlerName: 'HandlerA', eventName: 'event.a' }),
-        createMockHandler({ handlerName: 'HandlerB', eventName: 'event.b' }),
-        createMockHandler({ handlerName: 'HandlerC', eventName: 'event.c' }),
-        createMockHandler({ handlerName: 'HandlerD', eventName: 'event.d' }),
+        createMockHandler({ eventName: 'HandlerA', handlerId: 'HandlerA' }),
+        createMockHandler({ eventName: 'HandlerB', handlerId: 'HandlerB' }),
       ];
 
-      const dependencies = [
-        createMockDependency({ dependentHandler: 'HandlerA', dependsOn: 'HandlerB' }),
-        createMockDependency({ dependentHandler: 'HandlerA', dependsOn: 'HandlerC' }),
-        createMockDependency({ dependentHandler: 'HandlerD', dependsOn: 'HandlerB' }),
-      ];
+      strictService.registerHandlers(handlers);
+      strictService.addDependency('HandlerA', 'HandlerB');
+      strictService.addDependency('HandlerB', 'HandlerA');
 
-      service.registerHandler(handlers[0], [dependencies[0], dependencies[1]]);
-      service.registerHandler(handlers[1], []);
-      service.registerHandler(handlers[2], []);
-      service.registerHandler(handlers[3], [dependencies[2]]);
+      const validation = strictService.validateDependencies();
 
-      const plan = service.createExecutionPlan(handlers);
-      expect(plan.phases).toBeDefined();
-      expect(plan.totalPhases).toBeGreaterThan(1);
-    });
-
-    it('should optimize execution plan for parallelization', () => {
-      const handlers = [
-        createMockHandler({ handlerName: 'HandlerA' }),
-        createMockHandler({ handlerName: 'HandlerB' }),
-        createMockHandler({ handlerName: 'HandlerC' }),
-      ];
-
-      service.registerHandler(handlers[0], []);
-      service.registerHandler(handlers[1], []);
-      service.registerHandler(handlers[2], []);
-
-      const plan = service.createExecutionPlan(handlers);
-      expect(plan.canParallelize).toBe(true);
-      expect(plan.estimatedExecutionTime).toBeDefined();
-      expect(plan.parallelizationOpportunities).toBeDefined();
+      expect(validation.errors.length).toBeGreaterThan(0);
+      expect(validation.errors[0]).toContain('Circular dependency');
     });
   });
 
@@ -361,244 +446,169 @@ describe('DependencyAnalyzerService', () => {
       await service.onModuleInit();
     });
 
-    it('should provide analysis result observable', async () => {
-      const handlers = [createMockHandler()];
-      service.registerHandler(handlers[0], []);
-      service.analyzeDependencies(handlers);
+    it('should provide analysis results observable', async () => {
+      const handler = createMockHandler({ eventName: 'TestHandler', handlerId: 'TestHandler' });
+      service.registerHandlers([handler]);
 
-      const analysisResult = await firstValueFrom(service.getAnalysisResult$());
+      const analysisResult = await firstValueFrom(service.getAnalysisResults());
+
       expect(analysisResult).toBeDefined();
-      expect(analysisResult.handlers).toBeDefined();
-      expect(analysisResult.dependencies).toBeDefined();
+      expect(analysisResult.totalHandlers).toBe(1);
+      expect(analysisResult.analysisTimestamp).toBeGreaterThan(0);
     });
 
     it('should provide execution plan observable', async () => {
-      const handlers = [createMockHandler()];
-      service.registerHandler(handlers[0], []);
-      const plan = service.createExecutionPlan(handlers);
+      service.generateExecutionPlan(['HandlerA', 'HandlerB']);
 
-      const executionPlan = await firstValueFrom(service.getExecutionPlan$());
+      const executionPlan = await firstValueFrom(service.getExecutionPlan());
+
       expect(executionPlan).toBeDefined();
       expect(executionPlan.phases).toBeDefined();
+      expect(executionPlan.totalPhases).toBeGreaterThanOrEqual(0);
+    });
+
+    it('should get current analysis result synchronously', () => {
+      const handler = createMockHandler({ eventName: 'TestHandler', handlerId: 'TestHandler' });
+      service.registerHandlers([handler]);
+
+      const result = service.getCurrentAnalysisResult();
+
+      expect(result).toBeDefined();
+      expect(result.totalHandlers).toBe(1);
     });
   });
 
-  describe('Graph Operations', () => {
+  describe('Advanced Analysis Features', () => {
     beforeEach(async () => {
       await service.onModuleInit();
     });
 
-    it('should provide dependency graph', () => {
-      const handlers = [createMockHandler({ handlerName: 'HandlerA' }), createMockHandler({ handlerName: 'HandlerB' })];
-
-      const dependency = createMockDependency({
-        dependentHandler: 'HandlerA',
-        dependsOn: 'HandlerB',
-      });
-
-      service.registerHandler(handlers[0], [dependency]);
-      service.registerHandler(handlers[1], []);
-
-      const graph = service.getDependencyGraph();
-      expect(graph).toBeDefined();
-      expect(typeof graph).toBe('object');
-    });
-
-    it('should detect circular dependencies in graph', () => {
-      const handlers = [createMockHandler({ handlerName: 'HandlerA' }), createMockHandler({ handlerName: 'HandlerB' })];
-
-      const dependencies = [
-        createMockDependency({ dependentHandler: 'HandlerA', dependsOn: 'HandlerB' }),
-        createMockDependency({ dependentHandler: 'HandlerB', dependsOn: 'HandlerA' }),
-      ];
-
-      service.registerHandler(handlers[0], [dependencies[0]]);
-      service.registerHandler(handlers[1], [dependencies[1]]);
-
-      const circular = service.detectCircularDependencies(handlers);
-      expect(circular).toHaveLength(1);
-      expect(circular[0]).toMatchObject({
-        cycle: expect.any(Array),
-        severity: expect.any(String),
-      });
-    });
-
-    it('should resolve handler dependencies', () => {
+    it('should calculate critical path correctly', () => {
       const handlers = [
-        createMockHandler({ handlerName: 'HandlerA' }),
-        createMockHandler({ handlerName: 'HandlerB' }),
-        createMockHandler({ handlerName: 'HandlerC' }),
+        createMockHandler({ eventName: 'HandlerA', handlerId: 'HandlerA' }),
+        createMockHandler({ eventName: 'HandlerB', handlerId: 'HandlerB' }),
+        createMockHandler({ eventName: 'HandlerC', handlerId: 'HandlerC' }),
+        createMockHandler({ eventName: 'HandlerD', handlerId: 'HandlerD' }),
       ];
 
-      const dependencies = [
-        createMockDependency({ dependentHandler: 'HandlerA', dependsOn: 'HandlerB' }),
-        createMockDependency({ dependentHandler: 'HandlerB', dependsOn: 'HandlerC' }),
+      service.registerHandlers(handlers);
+      service.addDependency('HandlerA', 'HandlerB');
+      service.addDependency('HandlerB', 'HandlerC');
+      service.addDependency('HandlerC', 'HandlerD');
+
+      const result = service.getCurrentAnalysisResult();
+
+      expect(result.criticalPath).toBeDefined();
+      expect(result.criticalPath.length).toBeGreaterThan(0);
+      expect(result.maxDepth).toBeGreaterThan(1);
+    });
+
+    it('should identify isolated handlers', () => {
+      const handlers = [
+        createMockHandler({ eventName: 'HandlerA', handlerId: 'HandlerA' }),
+        createMockHandler({ eventName: 'HandlerB', handlerId: 'HandlerB' }),
+        createMockHandler({ eventName: 'HandlerC', handlerId: 'HandlerC' }),
       ];
 
-      service.registerHandler(handlers[0], [dependencies[0]]);
-      service.registerHandler(handlers[1], [dependencies[1]]);
-      service.registerHandler(handlers[2], []);
+      service.registerHandlers(handlers);
+      service.addDependency('HandlerA', 'HandlerB');
 
-      const resolved = service.resolveDependencies('HandlerA', handlers);
-      expect(resolved).toBeDefined();
-      expect(Array.isArray(resolved)).toBe(true);
+      const result = service.getCurrentAnalysisResult();
+
+      expect(result.isolatedHandlers).toContain('HandlerC');
+    });
+
+    it('should handle self-dependencies gracefully', () => {
+      const handler = createMockHandler({ eventName: 'HandlerA', handlerId: 'HandlerA' });
+
+      service.registerHandlers([handler]);
+      service.addDependency('HandlerA', 'HandlerA');
+
+      expect(service.hasCircularDependencies()).toBe(true);
+      const circular = service.getCircularDependencies();
+      expect(circular.length).toBeGreaterThan(0);
+    });
+
+    it('should provide comprehensive analysis metrics', () => {
+      const handlers = Array.from({ length: 5 }, (_, i) => createMockHandler({ eventName: `Handler${i}`, handlerId: `Handler${i}` }));
+
+      service.registerHandlers(handlers);
+      service.addDependency('Handler0', 'Handler1');
+      service.addDependency('Handler1', 'Handler2');
+      service.addDependency('Handler3', 'Handler4');
+
+      const result = service.getCurrentAnalysisResult();
+
+      expect(result.totalHandlers).toBe(5);
+      expect(result.totalDependencies).toBe(3);
+      expect(result.maxDepth).toBeGreaterThan(0);
+      expect(result.criticalPath).toBeDefined();
+      expect(result.isolatedHandlers).toBeDefined();
+    });
+
+    it('should handle edge case with empty configuration', () => {
+      const emptyService = new DependencyAnalyzerService(mockDiscoveryService, mockModuleRef, {});
+
+      expect(emptyService).toBeDefined();
+      expect(() => emptyService.getCurrentAnalysisResult()).not.toThrow();
+    });
+
+    it('should handle complex dependency graphs', () => {
+      const handlers = Array.from({ length: 10 }, (_, i) => createMockHandler({ eventName: `Handler${i}`, handlerId: `Handler${i}` }));
+
+      service.registerHandlers(handlers);
+
+      // Create a complex dependency graph
+      service.addDependency('Handler0', 'Handler1');
+      service.addDependency('Handler0', 'Handler2');
+      service.addDependency('Handler1', 'Handler3');
+      service.addDependency('Handler2', 'Handler3');
+      service.addDependency('Handler3', 'Handler4');
+      service.addDependency('Handler5', 'Handler6');
+      service.addDependency('Handler6', 'Handler7');
+      service.addDependency('Handler7', 'Handler8');
+
+      const plan = service.generateExecutionPlan(handlers.map((h) => h.eventName));
+
+      expect(plan.totalPhases).toBeGreaterThan(1);
+      expect(plan.estimatedExecutionTime).toBeGreaterThan(0);
+      expect(plan.phases.length).toBeGreaterThan(1);
     });
   });
 
-  describe('Configuration and Options', () => {
-    it('should handle strict mode configuration', async () => {
-      const strictService = new DependencyAnalyzerService(mockDiscoveryService, mockModuleRef, {
-        dependency: {
-          enabled: true,
-          strictMode: true,
-          circularDependencyHandling: 'error',
-        },
-      });
-
-      await expect(strictService.onModuleInit()).resolves.not.toThrow();
+  describe('Error Handling and Edge Cases', () => {
+    beforeEach(async () => {
+      await service.onModuleInit();
     });
 
-    it('should handle different circular dependency strategies', async () => {
-      const strategies = ['error', 'warning', 'ignore'] as const;
+    it('should handle null/undefined handlers gracefully', () => {
+      expect(() => service.registerHandlers(null as any)).toThrow();
+      expect(() => service.registerHandlers(undefined as any)).toThrow();
+      expect(() => service.registerHandlers([])).not.toThrow();
+    });
 
-      for (const strategy of strategies) {
-        const configuredService = new DependencyAnalyzerService(mockDiscoveryService, mockModuleRef, {
-          dependency: {
-            enabled: true,
-            circularDependencyHandling: strategy,
-          },
-        });
+    it('should handle malformed dependencies gracefully', () => {
+      expect(() => service.addDependency('', '')).not.toThrow();
+      expect(() => service.addDependency(null as any, null as any)).not.toThrow();
+      expect(() => service.removeDependency('', '')).not.toThrow();
+    });
 
-        await expect(configuredService.onModuleInit()).resolves.not.toThrow();
+    it('should handle large number of dependencies efficiently', () => {
+      const handlers = Array.from({ length: 100 }, (_, i) => createMockHandler({ eventName: `Handler${i}`, handlerId: `Handler${i}` }));
+
+      service.registerHandlers(handlers);
+
+      // Add many dependencies
+      for (let i = 0; i < 99; i++) {
+        service.addDependency(`Handler${i}`, `Handler${i + 1}`);
       }
-    });
 
-    it('should respect optimization configuration', async () => {
-      const optimizedService = new DependencyAnalyzerService(mockDiscoveryService, mockModuleRef, {
-        dependency: {
-          enabled: true,
-          optimization: {
-            enableParallelization: true,
-            maxParallelHandlers: 10,
-            dependencyTimeout: 10000,
-          },
-        },
-      });
+      const result = service.getCurrentAnalysisResult();
+      const plan = service.generateExecutionPlan(handlers.map((h) => h.eventName));
 
-      await optimizedService.onModuleInit();
-
-      const handlers = [createMockHandler({ handlerName: 'Handler1' }), createMockHandler({ handlerName: 'Handler2' })];
-
-      optimizedService.registerHandler(handlers[0], []);
-      optimizedService.registerHandler(handlers[1], []);
-
-      const plan = optimizedService.createExecutionPlan(handlers);
-      expect(plan.canParallelize).toBe(true);
-    });
-  });
-
-  describe('Error Handling', () => {
-    beforeEach(async () => {
-      await service.onModuleInit();
-    });
-
-    it('should handle invalid handler registration gracefully', () => {
-      const invalidHandler = null as any;
-      expect(() => service.registerHandler(invalidHandler, [])).not.toThrow();
-    });
-
-    it('should handle empty handler arrays', () => {
-      const result = service.analyzeDependencies([]);
-      expect(result).toBeDefined();
-      expect(result.handlers).toHaveLength(0);
-      expect(result.dependencies).toHaveLength(0);
-    });
-
-    it('should handle missing dependencies gracefully', () => {
-      const handler = createMockHandler({ handlerName: 'TestHandler' });
-      const invalidDependency = createMockDependency({
-        dependentHandler: 'TestHandler',
-        dependsOn: 'NonExistentHandler',
-      });
-
-      service.registerHandler(handler, [invalidDependency]);
-      const result = service.analyzeDependencies([handler]);
-
-      expect(result).toBeDefined();
-      expect(result.warnings).toBeDefined();
-    });
-
-    it('should handle complex circular dependencies', () => {
-      const handlers = [
-        createMockHandler({ handlerName: 'HandlerA' }),
-        createMockHandler({ handlerName: 'HandlerB' }),
-        createMockHandler({ handlerName: 'HandlerC' }),
-      ];
-
-      const dependencies = [
-        createMockDependency({ dependentHandler: 'HandlerA', dependsOn: 'HandlerB' }),
-        createMockDependency({ dependentHandler: 'HandlerB', dependsOn: 'HandlerC' }),
-        createMockDependency({ dependentHandler: 'HandlerC', dependsOn: 'HandlerA' }),
-      ];
-
-      service.registerHandler(handlers[0], [dependencies[0]]);
-      service.registerHandler(handlers[1], [dependencies[1]]);
-      service.registerHandler(handlers[2], [dependencies[2]]);
-
-      const result = service.analyzeDependencies(handlers);
-      expect(result.hasCircularDependencies).toBe(true);
-      expect(result.circularDependencies.length).toBeGreaterThan(0);
-    });
-  });
-
-  describe('Advanced Features', () => {
-    beforeEach(async () => {
-      await service.onModuleInit();
-    });
-
-    it('should provide dependency validation', () => {
-      const handler = createMockHandler({ handlerName: 'TestHandler' });
-      const dependency = createMockDependency({ dependentHandler: 'TestHandler' });
-
-      service.registerHandler(handler, [dependency]);
-
-      const isValid = service.validateDependencies([handler]);
-      expect(typeof isValid).toBe('boolean');
-    });
-
-    it('should handle dependency depth analysis', () => {
-      const handlers = [
-        createMockHandler({ handlerName: 'HandlerA' }),
-        createMockHandler({ handlerName: 'HandlerB' }),
-        createMockHandler({ handlerName: 'HandlerC' }),
-        createMockHandler({ handlerName: 'HandlerD' }),
-      ];
-
-      const dependencies = [
-        createMockDependency({ dependentHandler: 'HandlerA', dependsOn: 'HandlerB' }),
-        createMockDependency({ dependentHandler: 'HandlerB', dependsOn: 'HandlerC' }),
-        createMockDependency({ dependentHandler: 'HandlerC', dependsOn: 'HandlerD' }),
-      ];
-
-      handlers.forEach((handler, index) => {
-        const deps = dependencies[index] ? [dependencies[index]] : [];
-        service.registerHandler(handler, deps);
-      });
-
-      const analysis = service.analyzeDependencies(handlers);
-      expect(analysis.maxDepth).toBeDefined();
-      expect(analysis.maxDepth).toBeGreaterThan(1);
-    });
-
-    it('should provide performance insights', () => {
-      const handlers = Array.from({ length: 10 }, (_, i) => createMockHandler({ handlerName: `Handler${i}` }));
-
-      handlers.forEach((handler) => service.registerHandler(handler, []));
-
-      const plan = service.createExecutionPlan(handlers);
-      expect(plan.estimatedExecutionTime).toBeDefined();
-      expect(plan.parallelizationOpportunities).toBeDefined();
-      expect(plan.optimizationSuggestions).toBeDefined();
+      expect(result.totalHandlers).toBe(100);
+      expect(result.totalDependencies).toBe(99);
+      expect(plan.totalPhases).toBeGreaterThan(50); // Should create many phases
     });
   });
 });

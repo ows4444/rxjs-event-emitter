@@ -31,6 +31,28 @@ describe('InMemoryPersistenceAdapter', () => {
     expect(loaded).toBeNull();
   });
 
+  it('should load all events (processed and unprocessed)', () => {
+    const event1 = sampleEvent;
+    const event2 = {
+      metadata: { id: 'event-2', name: 'test.2', timestamp: Date.now() },
+      payload: { baz: 'qux' },
+    };
+
+    adapter.save(event1);
+    adapter.save(event2);
+    adapter.markProcessed('event-1');
+
+    const allEvents = adapter.loadAll();
+
+    expect(allEvents).toHaveLength(2);
+    expect(allEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ metadata: event1.metadata, payload: event1.payload }),
+        expect.objectContaining({ metadata: event2.metadata, payload: event2.payload }),
+      ]),
+    );
+  });
+
   it('should load unprocessed events', () => {
     adapter.save(sampleEvent);
     const events = adapter.loadUnprocessed();

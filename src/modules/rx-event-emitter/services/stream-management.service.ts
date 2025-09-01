@@ -287,6 +287,17 @@ export class StreamManagementService implements OnModuleInit, OnModuleDestroy {
     const streamId = `${name}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const streamConfig = { ...this.config, ...config };
 
+    // Handle null or undefined sources by returning EMPTY
+    if (!source) {
+      this.logger.warn(`Null or undefined source provided for stream ${streamId}, returning EMPTY`);
+      return EMPTY;
+    }
+
+    // Return source stream directly when disabled
+    if (!this.config.enabled) {
+      return source;
+    }
+
     let enhancedStream = source.pipe(
       takeUntil(this.shutdown$),
       tap(() => this.recordStreamActivity(streamId)),
@@ -344,6 +355,18 @@ export class StreamManagementService implements OnModuleInit, OnModuleDestroy {
     };
 
     this.managedStreams.set(streamId, managedStream);
+    
+    // Initialize stream health
+    const initialHealth: StreamHealth = {
+      streamId,
+      healthy: true,
+      status: 'active',
+      issues: [],
+      recommendations: [],
+      lastHealthCheck: Date.now(),
+    };
+    this.streamHealth.set(streamId, initialHealth);
+    
     this.streamUpdates$.next({ action: 'created', streamId });
 
     this.logger.debug(`Created managed stream: ${name} (${streamId})`);
@@ -575,13 +598,38 @@ export class StreamManagementService implements OnModuleInit, OnModuleDestroy {
     this.logger.error(`Stream ${streamId} error:`, error);
     this.recordStreamMetric(streamId, 'error');
     this.streamUpdates$.next({ action: 'error', streamId, details: error });
+    
+    // Update health status for errored stream
+    const health = this.streamHealth.get(streamId);
+    if (health) {
+      const updatedHealth: StreamHealth = {
+        ...health,
+        healthy: false,
+        status: 'errored',
+        issues: [...health.issues, `Stream error: ${error}`],
+        recommendations: [...health.recommendations, 'Check error handling and stream source'],
+        lastHealthCheck: Date.now(),
+      };
+      this.streamHealth.set(streamId, updatedHealth);
+    }
+    
     return EMPTY;
   }
 
   private handleStreamCompletion(streamId: string): void {
     this.logger.debug(`Stream ${streamId} completed`);
     this.managedStreams.delete(streamId);
-    this.streamHealth.delete(streamId);
+    
+    // Keep health information but mark stream as completed
+    const health = this.streamHealth.get(streamId);
+    if (health) {
+      const updatedHealth: StreamHealth = {
+        ...health,
+        status: health.status === 'errored' ? 'errored' : 'stalled', // Keep errored status or mark as stalled if completed
+        lastHealthCheck: Date.now(),
+      };
+      this.streamHealth.set(streamId, updatedHealth);
+    }
   }
 
   private recordStreamActivity(streamId: string): void {

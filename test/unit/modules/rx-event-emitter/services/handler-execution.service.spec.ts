@@ -5,8 +5,8 @@ import { HandlerExecutionService } from '@src/modules/rx-event-emitter/services/
 import { HandlerPoolService } from '@src/modules/rx-event-emitter/services/handler-pool.service';
 import { MetricsService } from '@src/modules/rx-event-emitter/services/metrics.service';
 import { DeadLetterQueueService } from '@src/modules/rx-event-emitter/services/dead-letter-queue.service';
-import { Event, RegisteredHandler, HandlerExecutionContext, CircuitBreakerState, EVENT_EMITTER_OPTIONS } from '@src/modules/rx-event-emitter/interfaces';
-import { EventPriority } from '@src/modules/rx-event-emitter/interfaces';
+import type { Event, RegisteredHandler, HandlerOptions } from '@src/modules/rx-event-emitter/interfaces';
+import { CircuitBreakerState, EVENT_EMITTER_OPTIONS, EventPriority } from '@src/modules/rx-event-emitter/interfaces';
 
 describe('HandlerExecutionService', () => {
   let service: HandlerExecutionService;
@@ -27,22 +27,24 @@ describe('HandlerExecutionService', () => {
 
   const createMockHandler = (overrides: Partial<RegisteredHandler> = {}): RegisteredHandler => ({
     eventName: 'test.event',
-    handlerName: 'TestHandler',
-    handler: {
-      handle: jest.fn().mockResolvedValue(undefined),
-    },
+    handlerId: 'test-handler-id',
+    handler: jest.fn().mockResolvedValue(undefined),
+    instance: {},
     options: {
       timeout: 5000,
       priority: 5,
-      retryPolicy: {
-        maxRetries: 3,
-        backoffMs: 1000,
-      },
+      retries: 3,
+      retryable: true,
     },
     metadata: {
-      isRegistered: true,
-      registeredAt: Date.now(),
-      handlerClass: 'TestHandler',
+      eventName: 'test.event',
+      className: 'TestHandler',
+      methodName: 'handle',
+      handlerId: 'test-handler-id',
+      options: {
+        timeout: 5000,
+        priority: 5,
+      },
     },
     ...overrides,
   });
@@ -136,17 +138,45 @@ describe('HandlerExecutionService', () => {
       await expect(service.onModuleDestroy()).resolves.not.toThrow();
     });
 
-    it('should initialize with disabled configuration', async () => {
-      const disabledService = new HandlerExecutionService({ enableAdvancedFeatures: false }, mockHandlerPoolService, mockMetricsService, mockDLQService);
-
-      await expect(disabledService.onModuleInit()).resolves.not.toThrow();
-      await disabledService.onModuleDestroy();
+    it('should initialize without optional services', async () => {
+      const minimalService = new HandlerExecutionService();
+      await expect(minimalService.onModuleInit()).resolves.not.toThrow();
+      await minimalService.onModuleDestroy();
     });
 
     it('should use default configuration when no options provided', () => {
-      const defaultService = new HandlerExecutionService(undefined, mockHandlerPoolService, mockMetricsService, mockDLQService);
-
+      const defaultService = new HandlerExecutionService();
       expect(defaultService).toBeDefined();
+    });
+
+    it('should handle shutdown with active executions', async () => {
+      jest.useFakeTimers();
+      await service.onModuleInit();
+
+      const mockEvent = createMockEvent();
+      const mockHandler = createMockHandler();
+
+      // Create a long-running handler
+      const longRunningHandler = createMockHandler({
+        handler: jest.fn().mockImplementation(() => new Promise((resolve) => setTimeout(resolve, 10000)))
+      });
+
+      // Start execution but don't wait for it
+      const executionPromise = service.executeHandler(longRunningHandler, mockEvent);
+
+      // Start shutdown
+      const shutdownPromise = service.onModuleDestroy();
+
+      // Fast-forward 6 seconds (shutdown waits 5 seconds)
+      jest.advanceTimersByTime(6000);
+
+      await shutdownPromise;
+
+      // Clean up the execution promise
+      jest.advanceTimersByTime(10000);
+      await expect(executionPromise).rejects.toThrow();
+
+      jest.useRealTimers();
     });
   });
 
@@ -158,147 +188,122 @@ describe('HandlerExecutionService', () => {
     it('should execute handler successfully', async () => {
       const mockEvent = createMockEvent();
       const mockHandler = createMockHandler();
-      const context: HandlerExecutionContext = {
-        event: mockEvent,
-        handler: mockHandler,
-        startTime: Date.now(),
-        timeout: 5000,
-        retryCount: 0,
-        maxRetries: 3,
-        circuitBreakerState: CircuitBreakerState.CLOSED,
-      };
 
-      const result = await service.executeHandler(context);
+      const result = await service.executeHandler(mockHandler, mockEvent);
 
       expect(result.success).toBe(true);
       expect(result.executionTime).toBeDefined();
       expect(result.error).toBeUndefined();
-      expect(mockHandler.handler.handle).toHaveBeenCalledWith(mockEvent);
+      expect(mockHandler.handler).toHaveBeenCalledWith(mockEvent);
+      expect(result.executionId).toBeDefined();
+      expect(result.handlerId).toBeDefined();
+      expect(result.context).toBeDefined();
+      expect(result.metrics).toBeDefined();
+    });
+
+    it('should execute handler with custom options', async () => {
+      const mockEvent = createMockEvent();
+      const mockHandler = createMockHandler();
+      const options: Partial<HandlerOptions & { pool?: string }> = {
+        timeout: 10000,
+        priority: EventPriority.HIGH,
+        pool: 'custom-pool',
+      };
+
+      const result = await service.executeHandler(mockHandler, mockEvent, options);
+
+      expect(result.success).toBe(true);
+      expect(result.context.executionTimeout).toBe(10000);
+      expect(result.context.priority).toBe(8);
+      expect(result.context.poolName).toBe('custom-pool');
     });
 
     it('should handle handler execution failure', async () => {
       const mockEvent = createMockEvent();
-      const mockHandler = createMockHandler();
       const testError = new Error('Handler execution failed');
+      const failingHandler = createMockHandler({
+        handler: jest.fn().mockRejectedValue(testError)
+      });
 
-      mockHandler.handler.handle = jest.fn().mockRejectedValue(testError);
+      await expect(service.executeHandler(failingHandler, mockEvent)).rejects.toThrow('Handler execution failed');
 
-      const context: HandlerExecutionContext = {
-        event: mockEvent,
-        handler: mockHandler,
-        startTime: Date.now(),
-        timeout: 5000,
-        retryCount: 0,
-        maxRetries: 3,
-        circuitBreakerState: CircuitBreakerState.CLOSED,
-      };
-
-      const result = await service.executeHandler(context);
-
-      expect(result.success).toBe(false);
-      expect(result.error).toBe(testError);
-      expect(mockMetricsService.recordHandlerFailure).toHaveBeenCalled();
+      expect(mockMetricsService.recordHandlerExecution).toHaveBeenCalledWith(expect.stringContaining('TestHandler'), expect.any(Number), false);
     });
 
     it('should handle handler execution timeout', async () => {
       jest.useFakeTimers();
 
       const mockEvent = createMockEvent();
-      const mockHandler = createMockHandler();
+      const slowHandler = createMockHandler({
+        handler: jest.fn().mockImplementation(() => new Promise((resolve) => setTimeout(resolve, 10000)))
+      });
 
-      mockHandler.handler.handle = jest.fn().mockImplementation(() => new Promise((resolve) => setTimeout(resolve, 10000)));
-
-      const context: HandlerExecutionContext = {
-        event: mockEvent,
-        handler: mockHandler,
-        startTime: Date.now(),
-        timeout: 1000,
-        retryCount: 0,
-        maxRetries: 3,
-        circuitBreakerState: CircuitBreakerState.CLOSED,
-      };
-
-      const executionPromise = service.executeHandler(context);
+      const executionPromise = service.executeHandler(slowHandler, mockEvent, { timeout: 1000 });
 
       jest.advanceTimersByTime(2000);
 
-      const result = await executionPromise;
-
-      expect(result.success).toBe(false);
-      expect(result.error?.message).toContain('timeout');
+      await expect(executionPromise).rejects.toThrow('Handler execution timeout');
 
       jest.useRealTimers();
     });
 
-    it('should execute handler with retry on failure', async () => {
+    it('should execute handler in pool when available', async () => {
       const mockEvent = createMockEvent();
       const mockHandler = createMockHandler();
-      const testError = new Error('Transient error');
 
-      mockHandler.handler.handle = jest.fn().mockRejectedValueOnce(testError).mockRejectedValueOnce(testError).mockResolvedValueOnce(undefined);
+      mockHandlerPoolService.executeInPool.mockResolvedValue('pool-result');
 
-      const result = await service.executeHandlerWithRetry(mockEvent, mockHandler);
+      const result = await service.executeHandler(mockHandler, mockEvent);
 
       expect(result.success).toBe(true);
-      expect(result.retryCount).toBe(2);
-      expect(mockHandler.handler.handle).toHaveBeenCalledTimes(3);
+      expect(mockHandlerPoolService.executeInPool).toHaveBeenCalled();
     });
 
-    it('should fail after max retries exceeded', async () => {
+    it('should execute handler directly when no pool service', async () => {
+      const serviceWithoutPool = new HandlerExecutionService(
+        undefined, // no pool service
+        mockMetricsService,
+        mockDLQService,
+        { enableAdvancedFeatures: true },
+      );
+
+      await serviceWithoutPool.onModuleInit();
+
       const mockEvent = createMockEvent();
-      const mockHandler = createMockHandler({
-        options: {
-          retryPolicy: {
-            maxRetries: 2,
-            backoffMs: 100,
-          },
-        },
-      });
-      const testError = new Error('Persistent error');
+      const mockHandler = createMockHandler();
 
-      mockHandler.handler.handle = jest.fn().mockRejectedValue(testError);
+      const result = await serviceWithoutPool.executeHandler(mockHandler, mockEvent);
 
-      const result = await service.executeHandlerWithRetry(mockEvent, mockHandler);
+      expect(result.success).toBe(true);
+      expect(mockHandler.handler).toHaveBeenCalledWith(mockEvent);
 
-      expect(result.success).toBe(false);
-      expect(result.retryCount).toBe(2);
-      expect(result.error).toBe(testError);
-      expect(mockDLQService.addEntry).toHaveBeenCalledWith(mockEvent, testError);
+      await serviceWithoutPool.onModuleDestroy();
     });
 
-    it('should execute multiple handlers for same event', async () => {
-      const mockEvent = createMockEvent();
-      const handlers = [
-        createMockHandler({ handlerName: 'Handler1' }),
-        createMockHandler({ handlerName: 'Handler2' }),
-        createMockHandler({ handlerName: 'Handler3' }),
-      ];
+    it('should handle handler execution with correlation ID', async () => {
+      const mockEvent = {
+        ...createMockEvent(),
+        metadata: {
+          ...createMockEvent().metadata,
+          correlationId: 'custom-correlation-id'
+        }
+      };
+      const mockHandler = createMockHandler();
 
-      const results = await service.executeHandlers(mockEvent, handlers);
+      const result = await service.executeHandler(mockHandler, mockEvent);
 
-      expect(results).toHaveLength(3);
-      expect(results.every((r) => r.success)).toBe(true);
-      handlers.forEach((handler) => {
-        expect(handler.handler.handle).toHaveBeenCalledWith(mockEvent);
-      });
+      expect(result.success).toBe(true);
+      expect(result.context.correlationId).toBe('custom-correlation-id');
     });
 
-    it('should handle mixed success and failure in multiple handlers', async () => {
+    it('should generate unique execution IDs', async () => {
       const mockEvent = createMockEvent();
-      const handlers = [
-        createMockHandler({ handlerName: 'SuccessHandler' }),
-        createMockHandler({ handlerName: 'FailHandler' }),
-        createMockHandler({ handlerName: 'AnotherSuccessHandler' }),
-      ];
+      const mockHandler = createMockHandler();
 
-      handlers[1].handler.handle = jest.fn().mockRejectedValue(new Error('Handler failed'));
+      const result1 = await service.executeHandler(mockHandler, mockEvent);
+      const result2 = await service.executeHandler(mockHandler, mockEvent);
 
-      const results = await service.executeHandlers(mockEvent, handlers);
-
-      expect(results).toHaveLength(3);
-      expect(results[0].success).toBe(true);
-      expect(results[1].success).toBe(false);
-      expect(results[2].success).toBe(true);
+      expect(result1.executionId).not.toBe(result2.executionId);
     });
   });
 
@@ -307,232 +312,294 @@ describe('HandlerExecutionService', () => {
       await service.onModuleInit();
     });
 
-    it('should track circuit breaker state', () => {
-      const handlerId = 'test-handler';
-
-      const state = service.getCircuitBreakerState(handlerId);
-      expect(state).toBe(CircuitBreakerState.CLOSED);
-    });
-
-    it('should open circuit breaker after threshold failures', async () => {
+    it('should handle circuit breaker functionality', async () => {
       const mockEvent = createMockEvent();
-      const mockHandler = createMockHandler({ handlerName: 'FailingHandler' });
       const testError = new Error('Persistent error');
+      const failingHandler = createMockHandler({ 
+        metadata: {
+          ...createMockHandler().metadata,
+          className: 'FailingHandler'
+        },
+        handler: jest.fn().mockRejectedValue(testError)
+      });
 
-      mockHandler.handler.handle = jest.fn().mockRejectedValue(testError);
-
-      for (let i = 0; i < 6; i++) {
-        await service.executeHandlerWithRetry(mockEvent, mockHandler);
+      // Execute multiple times to trigger circuit breaker
+      for (let i = 0; i < 15; i++) {
+        try {
+          await service.executeHandler(failingHandler, mockEvent);
+        } catch (error) {
+          // Expected to fail
+        }
       }
 
-      const state = service.getCircuitBreakerState('FailingHandler');
-      expect([CircuitBreakerState.OPEN, CircuitBreakerState.HALF_OPEN]).toContain(state);
+      // Should eventually throw circuit breaker error
+      await expect(service.executeHandler(failingHandler, mockEvent)).rejects.toThrow('Circuit breaker is open');
     });
 
-    it('should provide circuit breaker metrics', () => {
-      const handlerId = 'test-handler';
+    it('should handle circuit breaker recovery', async () => {
+      jest.useFakeTimers();
 
-      const metrics = service.getCircuitBreakerMetrics(handlerId);
-      expect(metrics).toBeDefined();
-      expect(metrics.state).toBe(CircuitBreakerState.CLOSED);
-      expect(typeof metrics.failureCount).toBe('number');
-      expect(typeof metrics.successCount).toBe('number');
-    });
+      const mockEvent = createMockEvent();
+      const failingHandler = createMockHandler({ 
+        metadata: {
+          ...createMockHandler().metadata,
+          className: 'RecoveringHandler'
+        },
+        handler: jest.fn().mockRejectedValue(new Error('Initial failure'))
+      });
 
-    it('should reset circuit breaker', () => {
-      const handlerId = 'test-handler';
+      for (let i = 0; i < 15; i++) {
+        try {
+          await service.executeHandler(failingHandler, mockEvent);
+        } catch (error) {
+          // Expected to fail
+        }
+      }
 
-      expect(() => service.resetCircuitBreaker(handlerId)).not.toThrow();
+      // Circuit should be open
+      await expect(service.executeHandler(failingHandler, mockEvent)).rejects.toThrow('Circuit breaker is open');
 
-      const state = service.getCircuitBreakerState(handlerId);
-      expect(state).toBe(CircuitBreakerState.CLOSED);
+      // Fast forward past recovery timeout
+      jest.advanceTimersByTime(31000);
+
+      // Create a working handler with same name for recovery
+      const workingHandler = createMockHandler({ 
+        metadata: {
+          ...createMockHandler().metadata,
+          className: 'RecoveringHandler'
+        },
+        handler: jest.fn().mockResolvedValue(undefined)
+      });
+
+      // Should work again (half-open state)
+      const result = await service.executeHandler(workingHandler, mockEvent);
+      expect(result.success).toBe(true);
+
+      jest.useRealTimers();
     });
   });
 
-  describe('Handler Pool Integration', () => {
-    beforeEach(async () => {
-      await service.onModuleInit();
-    });
-
-    it('should execute handler in pool when pool is available', async () => {
-      const mockEvent = createMockEvent();
-      const mockHandler = createMockHandler({
-        options: {
-          poolName: 'custom-pool',
-        },
+  describe('Rate Limiting', () => {
+    it('should handle custom execution configuration', async () => {
+      const serviceWithCustomConfig = new HandlerExecutionService(mockHandlerPoolService, mockMetricsService, mockDLQService, {
+        defaultTimeout: 1000,
+        maxConcurrency: 5,
       });
 
-      mockHandlerPoolService.hasPool.mockReturnValue(true);
-      mockHandlerPoolService.executeInPool.mockResolvedValue(undefined);
-
-      const context: HandlerExecutionContext = {
-        event: mockEvent,
-        handler: mockHandler,
-        startTime: Date.now(),
-        timeout: 5000,
-        retryCount: 0,
-        maxRetries: 3,
-        circuitBreakerState: CircuitBreakerState.CLOSED,
-      };
-
-      const result = await service.executeHandler(context);
-
-      expect(result.success).toBe(true);
-      expect(mockHandlerPoolService.executeInPool).toHaveBeenCalled();
-    });
-
-    it('should fall back to direct execution when pool is unavailable', async () => {
-      const mockEvent = createMockEvent();
-      const mockHandler = createMockHandler({
-        options: {
-          poolName: 'non-existent-pool',
-        },
-      });
-
-      mockHandlerPoolService.hasPool.mockReturnValue(false);
-
-      const context: HandlerExecutionContext = {
-        event: mockEvent,
-        handler: mockHandler,
-        startTime: Date.now(),
-        timeout: 5000,
-        retryCount: 0,
-        maxRetries: 3,
-        circuitBreakerState: CircuitBreakerState.CLOSED,
-      };
-
-      const result = await service.executeHandler(context);
-
-      expect(result.success).toBe(true);
-      expect(mockHandlerPoolService.executeInPool).not.toHaveBeenCalled();
-      expect(mockHandler.handler.handle).toHaveBeenCalledWith(mockEvent);
-    });
-  });
-
-  describe('Execution Statistics', () => {
-    beforeEach(async () => {
-      await service.onModuleInit();
-    });
-
-    it('should provide handler execution statistics', () => {
-      const handlerId = 'test-handler';
-
-      const stats = service.getHandlerStats(handlerId);
-      expect(stats).toBeDefined();
-      expect(stats.handlerId).toBe(handlerId);
-      expect(typeof stats.totalExecutions).toBe('number');
-      expect(typeof stats.successfulExecutions).toBe('number');
-      expect(typeof stats.failedExecutions).toBe('number');
-    });
-
-    it('should provide all handler statistics', () => {
-      const allStats = service.getAllHandlerStats();
-      expect(Array.isArray(allStats)).toBe(true);
-    });
-
-    it('should provide execution results observable', async () => {
-      const observable = service.getExecutionResults();
-      expect(observable).toBeDefined();
-      expect(typeof observable.subscribe).toBe('function');
+      await serviceWithCustomConfig.onModuleInit();
 
       const mockEvent = createMockEvent();
       const mockHandler = createMockHandler();
 
-      const resultPromise = firstValueFrom(observable);
+      // Test custom configuration by executing a handler
+      const result = await serviceWithCustomConfig.executeHandler(mockHandler, mockEvent);
+      expect(result.success).toBe(true);
 
-      const context: HandlerExecutionContext = {
-        event: mockEvent,
-        handler: mockHandler,
-        startTime: Date.now(),
-        timeout: 5000,
-        retryCount: 0,
-        maxRetries: 3,
-        circuitBreakerState: CircuitBreakerState.CLOSED,
-      };
+      await serviceWithCustomConfig.onModuleDestroy();
+    });
+  });
 
-      await service.executeHandler(context);
+  describe('Statistics and Monitoring', () => {
+    beforeEach(async () => {
+      await service.onModuleInit();
+    });
+
+    it('should track handler statistics', async () => {
+      const mockEvent = createMockEvent();
+      const mockHandler = createMockHandler({ 
+        metadata: {
+          ...createMockHandler().metadata,
+          className: 'StatsHandler'
+        }
+      });
+
+      await service.executeHandler(mockHandler, mockEvent);
+
+      const handlerId = 'TestHandler.handle@test.event'; // Generated handler ID format
+      const stats = service.getHandlerStats(handlerId);
+
+      expect(stats).toBeDefined();
+      expect(stats?.totalExecutions).toBe(1);
+      expect(stats?.successfulExecutions).toBe(1);
+      expect(stats?.failedExecutions).toBe(0);
+    });
+
+    it('should track failure statistics', async () => {
+      const mockEvent = createMockEvent();
+      const failingHandler = createMockHandler({ 
+        metadata: {
+          ...createMockHandler().metadata,
+          className: 'FailingHandler'
+        },
+        handler: jest.fn().mockRejectedValue(new Error('Test failure'))
+      });
+
+      try {
+        await service.executeHandler(failingHandler, mockEvent);
+      } catch (_error) {
+        // Expected failure
+      }
+
+      const handlerId = 'TestHandler.handle@test.event';
+      const stats = service.getHandlerStats(handlerId);
+
+      expect(stats).toBeDefined();
+      expect(stats?.totalExecutions).toBe(1);
+      expect(stats?.successfulExecutions).toBe(0);
+      expect(stats?.failedExecutions).toBe(1);
+      expect(stats?.consecutiveFailures).toBe(1);
+    });
+
+    it('should provide all statistics', async () => {
+      const mockEvent = createMockEvent();
+      const handler1 = createMockHandler({ 
+        metadata: {
+          ...createMockHandler().metadata,
+          className: 'Handler1'
+        }
+      });
+      const handler2 = createMockHandler({ 
+        metadata: {
+          ...createMockHandler().metadata,
+          className: 'Handler2'
+        }
+      });
+
+      await service.executeHandler(handler1, mockEvent);
+      await service.executeHandler(handler2, mockEvent);
+
+      const allStats = service.getAllStats();
+
+      expect(Object.keys(allStats).length).toBeGreaterThan(0);
+    });
+
+    it('should provide statistics observable', async () => {
+      const mockEvent = createMockEvent();
+      const mockHandler = createMockHandler();
+
+      const statsPromise = firstValueFrom(service.getStatsObservable());
+
+      await service.executeHandler(mockHandler, mockEvent);
+
+      const stats = await statsPromise;
+      expect(stats).toBeDefined();
+    });
+
+    it('should provide execution results observable', async () => {
+      const mockEvent = createMockEvent();
+      const mockHandler = createMockHandler();
+
+      const resultPromise = firstValueFrom(service.getExecutionResults());
+
+      await service.executeHandler(mockHandler, mockEvent);
 
       const result = await resultPromise;
       expect(result).toBeDefined();
       expect(result.success).toBe(true);
     });
-  });
 
-  describe('Configuration and Options', () => {
-    it('should handle custom execution configuration', async () => {
-      const customService = new HandlerExecutionService(
-        {
-          execution: {
-            enabled: true,
-            defaultTimeout: 10000,
-            maxRetries: 5,
-            enableCircuitBreaker: false,
-            enableMetrics: false,
-          },
-        },
-        mockHandlerPoolService,
-        mockMetricsService,
-        mockDLQService,
-      );
-
-      await expect(customService.onModuleInit()).resolves.not.toThrow();
-      await customService.onModuleDestroy();
-    });
-
-    it('should respect disabled circuit breaker configuration', async () => {
-      const customService = new HandlerExecutionService(
-        {
-          execution: {
-            enabled: true,
-            enableCircuitBreaker: false,
-          },
-        },
-        mockHandlerPoolService,
-        mockMetricsService,
-        mockDLQService,
-      );
-
-      await customService.onModuleInit();
-
-      const state = customService.getCircuitBreakerState('test-handler');
-      expect(state).toBe(CircuitBreakerState.DISABLED);
-
-      await customService.onModuleDestroy();
-    });
-
-    it('should respect disabled metrics configuration', async () => {
-      const customService = new HandlerExecutionService(
-        {
-          execution: {
-            enabled: true,
-            enableMetrics: false,
-          },
-        },
-        mockHandlerPoolService,
-        mockMetricsService,
-        mockDLQService,
-      );
-
-      await customService.onModuleInit();
-
+    it('should reset handler statistics', async () => {
       const mockEvent = createMockEvent();
       const mockHandler = createMockHandler();
 
-      const context: HandlerExecutionContext = {
-        event: mockEvent,
-        handler: mockHandler,
-        startTime: Date.now(),
-        timeout: 5000,
-        retryCount: 0,
-        maxRetries: 3,
-        circuitBreakerState: CircuitBreakerState.CLOSED,
-      };
+      await service.executeHandler(mockHandler, mockEvent);
 
-      await customService.executeHandler(context);
+      const handlerId = 'TestHandler.handle@test.event';
+      let stats = service.getHandlerStats(handlerId);
+      expect(stats?.totalExecutions).toBe(1);
 
-      expect(mockMetricsService.recordHandlerExecution).not.toHaveBeenCalled();
+      service.resetHandlerStats(handlerId);
 
-      await customService.onModuleDestroy();
+      stats = service.getHandlerStats(handlerId);
+      expect(stats).toBeUndefined();
+    });
+
+    it('should reset all statistics', async () => {
+      const mockEvent = createMockEvent();
+      const mockHandler = createMockHandler();
+
+      await service.executeHandler(mockHandler, mockEvent);
+
+      const allStats = service.getAllStats();
+      expect(Object.keys(allStats).length).toBeGreaterThan(0);
+
+      service.resetAllStats();
+
+      const resetStats = service.getAllStats();
+      expect(Object.keys(resetStats).length).toBe(0);
+    });
+  });
+
+  describe('Active Execution Management', () => {
+    beforeEach(async () => {
+      await service.onModuleInit();
+    });
+
+    it('should track active executions', async () => {
+      jest.useFakeTimers();
+
+      const mockEvent = createMockEvent();
+      
+      // Create a long-running handler
+      const longRunningHandler = createMockHandler({
+        handler: jest.fn().mockImplementation(() => new Promise((resolve) => setTimeout(resolve, 5000)))
+      });
+
+      // Start execution but don't wait
+      const executionPromise = service.executeHandler(longRunningHandler, mockEvent);
+
+      // Check active executions
+      const activeExecutions = service.getActiveExecutions();
+      expect(activeExecutions.length).toBe(1);
+
+      // Complete the execution
+      jest.advanceTimersByTime(6000);
+      await executionPromise;
+
+      // Should be no active executions
+      const activeAfter = service.getActiveExecutions();
+      expect(activeAfter.length).toBe(0);
+
+      jest.useRealTimers();
+    });
+
+    it('should cancel executions', async () => {
+      jest.useFakeTimers();
+
+      const mockEvent = createMockEvent();
+      
+      // Create a long-running handler
+      const longRunningHandler = createMockHandler({
+        handler: jest.fn().mockImplementation(() => new Promise((resolve) => setTimeout(resolve, 5000)))
+      });
+
+      // Start execution
+      const executionPromise = service.executeHandler(longRunningHandler, mockEvent);
+
+      // Get active executions to find execution ID
+      const activeExecutions = service.getActiveExecutions();
+      expect(activeExecutions.length).toBe(1);
+
+      const executionId = activeExecutions[0].executionId;
+
+      // Cancel execution
+      const cancelled = service.cancelExecution(executionId);
+      expect(cancelled).toBe(true);
+
+      // Should be no active executions
+      const activeAfter = service.getActiveExecutions();
+      expect(activeAfter.length).toBe(0);
+
+      // Complete the original promise
+      jest.advanceTimersByTime(6000);
+      await expect(executionPromise).resolves.toBeDefined();
+
+      jest.useRealTimers();
+    });
+
+    it('should return false when canceling non-existent execution', () => {
+      const cancelled = service.cancelExecution('non-existent-id');
+      expect(cancelled).toBe(false);
     });
   });
 
@@ -541,118 +608,188 @@ describe('HandlerExecutionService', () => {
       await service.onModuleInit();
     });
 
-    it('should handle null or undefined handler gracefully', async () => {
+    it('should handle handlers with invalid methods', async () => {
       const mockEvent = createMockEvent();
+      const invalidHandler = createMockHandler({
+        handler: null as any
+      });
 
-      const result = await service.executeHandlers(mockEvent, []);
-
-      expect(result).toHaveLength(0);
+      await expect(service.executeHandler(invalidHandler, mockEvent)).rejects.toThrow();
     });
 
-    it('should handle handler with no handle method', async () => {
+    it('should handle different error types in retry logic', async () => {
       const mockEvent = createMockEvent();
-      const invalidHandler = createMockHandler();
-      invalidHandler.handler = {} as any;
 
-      const context: HandlerExecutionContext = {
-        event: mockEvent,
-        handler: invalidHandler,
-        startTime: Date.now(),
-        timeout: 5000,
-        retryCount: 0,
-        maxRetries: 3,
-        circuitBreakerState: CircuitBreakerState.CLOSED,
-      };
+      // Test PERMANENT error (no retry)
+      const permanentErrorHandler = createMockHandler({
+        handler: jest.fn().mockRejectedValue(new Error('PERMANENT error'))
+      });
+      await expect(service.executeHandler(permanentErrorHandler, mockEvent)).rejects.toThrow('PERMANENT error');
 
-      const result = await service.executeHandler(context);
+      // Test VALIDATION error (no retry)
+      const validationErrorHandler = createMockHandler({
+        handler: jest.fn().mockRejectedValue(new Error('VALIDATION error'))
+      });
+      await expect(service.executeHandler(validationErrorHandler, mockEvent)).rejects.toThrow('VALIDATION error');
 
-      expect(result.success).toBe(false);
-      expect(result.error).toBeDefined();
+      // Test UNAUTHORIZED error (no retry)
+      const unauthorizedErrorHandler = createMockHandler({
+        handler: jest.fn().mockRejectedValue(new Error('UNAUTHORIZED error'))
+      });
+      await expect(service.executeHandler(unauthorizedErrorHandler, mockEvent)).rejects.toThrow('UNAUTHORIZED error');
+    });
+
+    it('should handle error distribution tracking', async () => {
+      const mockEvent = createMockEvent();
+
+      // Create different error types
+      const errors = [new TypeError('Type error'), new ReferenceError('Reference error'), new Error('Generic error')];
+
+      for (const error of errors) {
+        const errorHandler = createMockHandler({
+          handler: jest.fn().mockRejectedValue(error)
+        });
+        try {
+          await service.executeHandler(errorHandler, mockEvent);
+        } catch (_e) {
+          // Expected
+        }
+      }
+
+      const handlerId = 'TestHandler.handle@test.event';
+      const stats = service.getHandlerStats(handlerId);
+
+      expect(stats?.errorDistribution).toBeDefined();
+      expect(stats?.errorDistribution['TypeError']).toBe(1);
+      expect(stats?.errorDistribution['ReferenceError']).toBe(1);
+      expect(stats?.errorDistribution['Error']).toBe(1);
     });
 
     it('should handle very short timeouts', async () => {
       const mockEvent = createMockEvent();
-      const mockHandler = createMockHandler();
+      const slowHandler = createMockHandler({
+        handler: jest.fn().mockImplementation(() => new Promise((resolve) => setTimeout(resolve, 100)))
+      });
 
-      mockHandler.handler.handle = jest.fn().mockImplementation(() => new Promise((resolve) => setTimeout(resolve, 100)));
-
-      const context: HandlerExecutionContext = {
-        event: mockEvent,
-        handler: mockHandler,
-        startTime: Date.now(),
-        timeout: 1,
-        retryCount: 0,
-        maxRetries: 3,
-        circuitBreakerState: CircuitBreakerState.CLOSED,
-      };
-
-      const result = await service.executeHandler(context);
-
-      expect(result.success).toBe(false);
-      expect(result.error?.message).toContain('timeout');
+      await expect(service.executeHandler(slowHandler, mockEvent, { timeout: 1 })).rejects.toThrow();
     });
 
-    it('should handle concurrent executions', async () => {
+    it('should handle concurrent executions safely', async () => {
       const mockEvent = createMockEvent();
-      const handlers = Array.from({ length: 10 }, (_, i) => createMockHandler({ handlerName: `ConcurrentHandler${i}` }));
+      const handlers = Array.from({ length: 10 }, (_, i) => createMockHandler({ 
+        metadata: {
+          ...createMockHandler().metadata,
+          className: `ConcurrentHandler${i}`
+        }
+      }));
 
-      const results = await Promise.all(handlers.map((handler) => service.executeHandlerWithRetry(mockEvent, handler)));
+      const results = await Promise.all(handlers.map((handler) => service.executeHandler(handler, mockEvent)));
 
       expect(results).toHaveLength(10);
       expect(results.every((r) => r.success)).toBe(true);
     });
+
+    it('should generate proper handler IDs', async () => {
+      const mockEvent = createMockEvent();
+      const mockHandler = createMockHandler({
+        metadata: {
+          eventName: 'custom.event',
+          className: 'CustomHandler',
+          methodName: 'customMethod',
+          handlerId: 'custom-handler-id',
+          options: {},
+        },
+      });
+
+      const result = await service.executeHandler(mockHandler, mockEvent);
+
+      expect(result.handlerId).toBe('CustomHandler.customMethod@custom.event');
+    });
+
+    it('should handle missing handler metadata gracefully', async () => {
+      const mockEvent = createMockEvent();
+      const mockHandler = createMockHandler({
+        metadata: {
+          eventName: 'test.event',
+          className: 'TestHandler',
+          methodName: 'handle',
+          handlerId: 'test-handler-id-2',
+          options: {},
+          // Missing className and methodName
+        },
+      });
+
+      const result = await service.executeHandler(mockHandler, mockEvent);
+
+      expect(result.success).toBe(true);
+      expect(result.handlerId).toBe('Unknown.handle@test.event');
+    });
   });
 
-  describe('Advanced Features', () => {
-    beforeEach(async () => {
-      await service.onModuleInit();
-    });
+  describe('Configuration Variations', () => {
+    it('should handle minimal configuration', async () => {
+      const minimalService = new HandlerExecutionService();
 
-    it('should handle priority-based execution', async () => {
-      const mockEvent = createMockEvent();
-      const handlers = [
-        createMockHandler({
-          handlerName: 'LowPriorityHandler',
-          options: { priority: 1 },
-        }),
-        createMockHandler({
-          handlerName: 'HighPriorityHandler',
-          options: { priority: 10 },
-        }),
-        createMockHandler({
-          handlerName: 'MediumPriorityHandler',
-          options: { priority: 5 },
-        }),
-      ];
+      await minimalService.onModuleInit();
 
-      const results = await service.executeHandlers(mockEvent, handlers);
-
-      expect(results).toHaveLength(3);
-      expect(results.every((r) => r.success)).toBe(true);
-    });
-
-    it('should provide comprehensive execution context', async () => {
       const mockEvent = createMockEvent();
       const mockHandler = createMockHandler();
 
-      const context: HandlerExecutionContext = {
-        event: mockEvent,
-        handler: mockHandler,
-        startTime: Date.now(),
-        timeout: 5000,
-        retryCount: 2,
-        maxRetries: 3,
-        circuitBreakerState: CircuitBreakerState.HALF_OPEN,
-        metadata: {
-          correlationId: 'test-correlation',
-          traceId: 'test-trace',
-        },
-      };
-
-      const result = await service.executeHandler(context);
+      const result = await minimalService.executeHandler(mockHandler, mockEvent);
 
       expect(result.success).toBe(true);
-      expect(result.context).toEqual(context);
+
+      await minimalService.onModuleDestroy();
+    });
+
+    it('should handle disabled configuration', async () => {
+      const disabledService = new HandlerExecutionService(mockHandlerPoolService, mockMetricsService, mockDLQService, {});
+
+      await expect(disabledService.onModuleInit()).resolves.not.toThrow();
+      await disabledService.onModuleDestroy();
+    });
+
+    it('should handle custom circuit breaker configuration', async () => {
+      const customService = new HandlerExecutionService(mockHandlerPoolService, mockMetricsService, mockDLQService, {
+        circuitBreaker: {
+          enabled: true,
+          failureThreshold: 3,
+          recoveryTimeout: 10000,
+        },
+      });
+
+      await customService.onModuleInit();
+
+      const mockEvent = createMockEvent();
+      const failingHandler = createMockHandler({
+        handler: jest.fn().mockRejectedValue(new Error('Test failure'))
+      });
+
+      // Should open circuit after fewer failures with custom config
+      for (let i = 0; i < 5; i++) {
+        try {
+          await customService.executeHandler(failingHandler, mockEvent);
+        } catch (_error) {
+          // Expected
+        }
+      }
+
+      // Should throw circuit breaker error
+      await expect(customService.executeHandler(failingHandler, mockEvent)).rejects.toThrow('Circuit breaker is open');
+
+      await customService.onModuleDestroy();
+    });
+
+    it('should handle custom retry configuration', async () => {
+      const customService = new HandlerExecutionService(mockHandlerPoolService, mockMetricsService, mockDLQService, {
+        defaultTimeout: 10000,
+      });
+
+      await customService.onModuleInit();
+
+      expect(customService).toBeDefined();
+
+      await customService.onModuleDestroy();
     });
   });
 });

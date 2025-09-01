@@ -277,6 +277,174 @@ describe('MetricsService', () => {
     });
   });
 
+  describe('DLQ Metrics', () => {
+    beforeEach(async () => {
+      await service.onModuleInit();
+    });
+
+    it('should record DLQ metrics', () => {
+      const dlqMetrics = {
+        totalEntries: 5,
+        successfulReprocessing: 2,
+        failedReprocessing: 1,
+        averageRetryTime: 1000,
+        currentlyProcessing: 1,
+        scheduledForRetry: 2,
+        permanentFailures: 0,
+        healthStatus: 'healthy' as const,
+        lastProcessedAt: Date.now(),
+        policyStats: {
+          'default': {
+            totalEntries: 3,
+            successfulRetries: 2,
+            failedRetries: 1,
+            averageRetryTime: 800,
+          }
+        }
+      };
+
+      service.recordDLQMetrics(dlqMetrics);
+      const systemMetrics = service.getCurrentSystemMetrics();
+      
+      expect(systemMetrics.dlq.totalEntries).toBe(5);
+      expect(systemMetrics.dlq.successfulReprocessing).toBe(2);
+      expect(systemMetrics.dlq.failedReprocessing).toBe(1);
+    });
+
+    it('should not record DLQ metrics when disabled', async () => {
+      const disabledModule: TestingModule = await Test.createTestingModule({
+        providers: [
+          MetricsService,
+          {
+            provide: EVENT_EMITTER_OPTIONS,
+            useValue: { metrics: { enabled: false } },
+          },
+        ],
+      }).compile();
+
+      const disabledService = disabledModule.get<MetricsService>(MetricsService);
+      await disabledService.onModuleInit();
+
+      const dlqMetrics = {
+        totalEntries: 5,
+        successfulReprocessing: 2,
+        failedReprocessing: 1,
+        averageRetryTime: 1000,
+        currentlyProcessing: 1,
+        scheduledForRetry: 2,
+        permanentFailures: 0,
+        healthStatus: 'healthy' as const,
+        policyStats: {}
+      };
+
+      disabledService.recordDLQMetrics(dlqMetrics);
+      // Should not update metrics when disabled
+    });
+  });
+
+  describe('Isolation Metrics', () => {
+    beforeEach(async () => {
+      await service.onModuleInit();
+    });
+
+    it('should record isolation metrics', () => {
+      const isolationMetrics = {
+        totalPools: 3,
+        activePools: 2,
+        totalActiveExecutions: 10,
+        totalQueuedTasks: 5,
+        totalDroppedTasks: 1,
+        averagePoolUtilization: 0.75,
+        circuitBreakerStates: { 'pool1': 'closed', 'pool2': 'open' },
+        poolMetrics: new Map(),
+        resourceUsage: {
+          cpuUsage: 45.5,
+          memoryUsage: 512,
+          gcPressure: 0.1,
+          eventLoopLag: 2.5
+        },
+        isolation: {
+          crossTalk: 0.05,
+          faultIsolation: 0.95,
+          resourceContention: 0.1
+        }
+      };
+
+      service.recordIsolationMetrics(isolationMetrics);
+      const systemMetrics = service.getCurrentSystemMetrics();
+      
+      expect(systemMetrics.isolation.totalPools).toBe(3);
+      expect(systemMetrics.isolation.activePools).toBe(2);
+      expect(systemMetrics.isolation.totalActiveExecutions).toBe(10);
+    });
+
+    it('should not record isolation metrics when disabled', async () => {
+      const disabledModule: TestingModule = await Test.createTestingModule({
+        providers: [
+          MetricsService,
+          {
+            provide: EVENT_EMITTER_OPTIONS,
+            useValue: { metrics: { enabled: false } },
+          },
+        ],
+      }).compile();
+
+      const disabledService = disabledModule.get<MetricsService>(MetricsService);
+      await disabledService.onModuleInit();
+
+      const isolationMetrics = {
+        totalPools: 3,
+        activePools: 2,
+        totalActiveExecutions: 10,
+        totalQueuedTasks: 5,
+        totalDroppedTasks: 1,
+        averagePoolUtilization: 0.75,
+        circuitBreakerStates: {},
+        poolMetrics: new Map(),
+        resourceUsage: {
+          cpuUsage: 0,
+          memoryUsage: 0,
+          gcPressure: 0,
+          eventLoopLag: 0
+        },
+        isolation: {
+          crossTalk: 0,
+          faultIsolation: 0,
+          resourceContention: 0
+        }
+      };
+
+      disabledService.recordIsolationMetrics(isolationMetrics);
+      // Should not update metrics when disabled
+    });
+  });
+
+  describe('Metrics Reset', () => {
+    beforeEach(async () => {
+      await service.onModuleInit();
+    });
+
+    it('should reset all metrics', () => {
+      // Record some metrics first
+      service.recordEventEmitted(mockEvent);
+      service.recordEventProcessed(mockEvent, 100);
+      service.recordHandlerExecution('test.handler', 50, true);
+
+      // Verify metrics exist
+      let metrics = service.getCurrentSystemMetrics();
+      expect(metrics.events.totalEmitted).toBeGreaterThan(0);
+
+      // Reset metrics
+      service.reset();
+
+      // Verify metrics are reset
+      metrics = service.getCurrentSystemMetrics();
+      expect(metrics.events.totalEmitted).toBe(0);
+      expect(metrics.events.totalProcessed).toBe(0);
+      expect(metrics.events.totalFailed).toBe(0);
+    });
+  });
+
   describe('Legacy Compatibility', () => {
     beforeEach(async () => {
       await service.onModuleInit();

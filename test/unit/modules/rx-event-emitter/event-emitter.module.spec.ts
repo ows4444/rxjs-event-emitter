@@ -11,8 +11,9 @@ import { DeadLetterQueueService } from '@src/modules/rx-event-emitter/services/d
 import { HandlerPoolService } from '@src/modules/rx-event-emitter/services/handler-pool.service';
 import { HandlerExecutionService } from '@src/modules/rx-event-emitter/services/handler-execution.service';
 import { StreamManagementService } from '@src/modules/rx-event-emitter/services/stream-management.service';
-import { EVENT_EMITTER_OPTIONS, BackpressureStrategy } from '@src/modules/rx-event-emitter/interfaces';
-import type { EventEmitterOptions, RegisteredHandler } from '@src/modules/rx-event-emitter/interfaces';
+import { EVENT_EMITTER_OPTIONS } from '@src/modules/rx-event-emitter/interfaces';
+import type { RegisteredHandler } from '@src/modules/rx-event-emitter/interfaces';
+import type { EventEmitterOptions } from '@src/modules/rx-event-emitter/services';
 
 describe('EventEmitterModule', () => {
   let module: EventEmitterModule;
@@ -183,12 +184,8 @@ describe('EventEmitterModule', () => {
     it('should create module with custom options', () => {
       const customOptions: EventEmitterOptions = {
         maxConcurrency: 10,
-        persistence: {
-          enabled: true,
-        },
-        dlq: {
-          enabled: true,
-        },
+        enablePersistence: true,
+        enableDeadLetterQueue: true,
       };
 
       const dynamicModule = EventEmitterModule.forRoot(customOptions);
@@ -475,23 +472,18 @@ describe('EventEmitterModule', () => {
     it('should handle complex configuration options', async () => {
       const complexOptions: EventEmitterOptions = {
         maxConcurrency: 25,
-        handlerExecution: {
-          defaultTimeout: 15000,
-        },
-        persistence: {
+        defaultTimeout: 15000,
+        enablePersistence: true,
+        enableDeadLetterQueue: true,
+        enableAdvancedFeatures: true,
+        circuitBreaker: {
           enabled: true,
+          failureThreshold: 3,
+          recoveryTimeout: 60000,
         },
-        dlq: {
+        streamManagement: {
           enabled: true,
-        },
-        errorRecovery: {
-          enabled: true,
-          circuitBreakerThreshold: 3,
-          circuitBreakerTimeout: 60000,
-        },
-        backpressure: {
-          bufferSize: 2000,
-          overflowStrategy: BackpressureStrategy.DROP_OLDEST,
+          backpressureStrategy: 'buffer',
         },
       };
 
@@ -507,9 +499,7 @@ describe('EventEmitterModule', () => {
     it('should handle minimal configuration', async () => {
       const minimalOptions: EventEmitterOptions = {
         maxConcurrency: 5,
-        dlq: {
-          enabled: false,
-        },
+        enableDeadLetterQueue: false,
       };
 
       const dynamicModule = EventEmitterModule.forRoot(minimalOptions);
@@ -527,6 +517,7 @@ describe('EventEmitterModule', () => {
       fullModuleRef = await Test.createTestingModule({
         imports: [
           EventEmitterModule.forRoot({
+            enablePersistence: true,
             enableDeadLetterQueue: true,
           }),
         ],
@@ -565,8 +556,8 @@ describe('EventEmitterModule', () => {
       const options = fullModuleRef.get(EVENT_EMITTER_OPTIONS);
 
       expect(options).toBeDefined();
-      expect(options.persistence?.enabled).toBe(true);
-      expect(options.dlq?.enabled).toBe(true);
+      expect(options.enablePersistence).toBe(true);
+      expect(options.enableDeadLetterQueue).toBe(true);
     });
 
     it('should initialize all services without errors', async () => {
@@ -615,7 +606,16 @@ describe('EventEmitterModule', () => {
         .overrideProvider(DependencyAnalyzerService)
         .useValue({
           ...dependencyAnalyzerService,
-          getCurrentAnalysisResult: jest.fn().mockReturnValue(null),
+          getCurrentAnalysisResult: jest.fn().mockReturnValue({
+            circularDependencies: [],
+            executionOrder: [],
+            analysisReport: {
+              totalHandlers: 0,
+              circularDependencies: 0,
+              complexDependencyChains: 0,
+              optimizationOpportunities: [],
+            },
+          }),
         })
         .compile();
 

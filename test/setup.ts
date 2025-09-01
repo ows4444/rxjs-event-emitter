@@ -5,13 +5,13 @@ config({ path: '.env.test' });
 import { Logger } from '@nestjs/common';
 Logger.overrideLogger([]);
 
-beforeAll(async () => {
-  jest.clearAllMocks();
+beforeAll(() => {
+  jest.useFakeTimers();
 });
 
-afterAll(async () => {
+afterAll(() => {
+  jest.useRealTimers();
   jest.restoreAllMocks();
-  jest.clearAllTimers();
 });
 
 beforeEach(() => {

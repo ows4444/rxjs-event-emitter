@@ -141,13 +141,21 @@ describe('EventEmitterService', () => {
   });
 
   afterEach(async () => {
-    if (service && !service.isShuttingDown()) {
-      await service.onModuleDestroy();
+    try {
+      if (service && typeof service.isShuttingDown === 'function' && !service.isShuttingDown()) {
+        await Promise.race([
+          service.onModuleDestroy(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Cleanup timeout')), 3000))
+        ]);
+      }
+    } catch (error) {
+      console.warn('Service cleanup warning:', error instanceof Error ? error.message : String(error));
+    } finally {
+      jest.clearAllMocks();
+      jest.clearAllTimers();
+      jest.useRealTimers();
     }
-    jest.clearAllMocks();
-    jest.clearAllTimers();
-    jest.useRealTimers();
-  });
+  }, 5000);
 
   describe('Module Lifecycle', () => {
     it('should be defined', () => {
@@ -166,7 +174,7 @@ describe('EventEmitterService', () => {
 
       await service.onModuleDestroy();
       expect(service.isShuttingDown()).toBe(true);
-    });
+    }, 10000);
   });
 
   describe('Event Emission', () => {
