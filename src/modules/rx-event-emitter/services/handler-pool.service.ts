@@ -23,7 +23,7 @@ import { IsolationStrategy } from '../interfaces/core.interfaces';
 class Pool implements HandlerPool {
   private readonly activeExecutions = new Map<string, Promise<unknown>>();
   private readonly taskQueue: Array<{ task: () => Promise<unknown>; resolve: (value: unknown) => void; reject: (error: unknown) => void }> = [];
-  private readonly metrics$ = new BehaviorSubject<HandlerPoolMetrics>(this.createInitialMetrics());
+  private readonly metrics$: BehaviorSubject<HandlerPoolMetrics>;
   private readonly circuitBreaker = {
     state: CircuitBreakerState.CLOSED,
     failureCount: 0,
@@ -43,7 +43,9 @@ class Pool implements HandlerPool {
   constructor(
     public readonly config: HandlerPoolConfig,
     private readonly logger: Logger,
-  ) {}
+  ) {
+    this.metrics$ = new BehaviorSubject<HandlerPoolMetrics>(this.createInitialMetrics());
+  }
 
   private createInitialMetrics(): HandlerPoolMetrics {
     return {

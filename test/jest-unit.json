@@ -54,6 +54,8 @@
     "^@test/(.*)$": "<rootDir>/test/$1"
   },
   "transform": {
-    "^.+\\.(t|j)s$": "ts-jest"
+    "^.+\\.(t|j)s$": ["ts-jest", {
+      "tsconfig": "tsconfig.json"
+    }]
   }
 }

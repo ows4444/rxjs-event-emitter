@@ -125,6 +125,7 @@ export default tseslint.config(
     // Test-specific overrides
     files: ['**/*.spec.ts', '**/*.test.ts'],
     rules: {
+      '@typescript-eslint/no-unsafe-function-type': 'off', // Common in Jest patterns
       '@typescript-eslint/unbound-method': 'off', // Common in Jest patterns
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-unsafe-assignment': 'off',

@@ -164,6 +164,9 @@ export class MetricsService implements OnModuleInit, OnModuleDestroy {
     };
     this.eventStats$.next(updated);
 
+    // Update system metrics to reflect event stats changes
+    this.syncSystemMetrics();
+
     // Legacy compatibility
     this.legacyMetrics.totalEvents++;
     const count = this.legacyMetrics.eventsByName.get(event.metadata.name) || 0;
@@ -177,7 +180,10 @@ export class MetricsService implements OnModuleInit, OnModuleDestroy {
 
     const now = Date.now();
     this.processingTimes.push(processingTimeMs);
-    this.cleanupOldTimestamps(this.processingTimes, 1000);
+    // Keep only the last 1000 processing times (not timestamp-based cleanup)
+    if (this.processingTimes.length > 1000) {
+      this.processingTimes.shift();
+    }
 
     // Update event stats
     const current = this.eventStats$.value;
@@ -191,6 +197,9 @@ export class MetricsService implements OnModuleInit, OnModuleDestroy {
       currentlyProcessing: Math.max(0, current.currentlyProcessing - 1),
     };
     this.eventStats$.next(updated);
+
+    // Update system metrics to reflect event stats changes
+    this.syncSystemMetrics();
 
     // Legacy compatibility
     this.legacyMetrics.processedEvents++;
@@ -222,6 +231,9 @@ export class MetricsService implements OnModuleInit, OnModuleDestroy {
       currentlyProcessing: Math.max(0, current.currentlyProcessing - 1),
     };
     this.eventStats$.next(updated);
+
+    // Update system metrics to reflect event stats changes
+    this.syncSystemMetrics();
 
     // Legacy compatibility
     this.legacyMetrics.failedEvents++;
@@ -551,6 +563,21 @@ export class MetricsService implements OnModuleInit, OnModuleDestroy {
       ...current,
       [handlerName]: stats,
     });
+
+    // Update system metrics to reflect handler stats changes
+    this.syncSystemMetrics();
+  }
+
+  private syncSystemMetrics(): void {
+    // Sync the current event/stream stats with system metrics
+    const current = this.systemMetrics$.value;
+    const updated: SystemMetrics = {
+      ...current,
+      events: this.eventStats$.value,
+      streams: this.streamMetrics$.value,
+      handlers: this.handlerStats$.value,
+    };
+    this.systemMetrics$.next(updated);
   }
 
   private updateSystemMetrics(): void {
