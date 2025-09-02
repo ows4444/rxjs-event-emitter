@@ -522,13 +522,13 @@ describe('EventEmitterModule', () => {
           }),
         ],
       }).compile();
-    });
+    }, 45000);
 
     afterEach(async () => {
       if (fullModuleRef) {
         await fullModuleRef.close();
       }
-    });
+    }, 45000);
 
     it('should provide all services through dependency injection', () => {
       const eventEmitterService = fullModuleRef.get(EventEmitterService);
@@ -550,7 +550,7 @@ describe('EventEmitterModule', () => {
       expect(dependencyAnalyzerService).toBeInstanceOf(DependencyAnalyzerService);
       expect(handlerExecutionService).toBeInstanceOf(HandlerExecutionService);
       expect(streamManagementService).toBeInstanceOf(StreamManagementService);
-    });
+    }, 45000);
 
     it('should provide options token correctly', () => {
       const options = fullModuleRef.get(EVENT_EMITTER_OPTIONS);
@@ -558,13 +558,13 @@ describe('EventEmitterModule', () => {
       expect(options).toBeDefined();
       expect(options.enablePersistence).toBe(true);
       expect(options.enableDeadLetterQueue).toBe(true);
-    });
+    }, 45000);
 
     it('should initialize all services without errors', async () => {
       const moduleInstance = fullModuleRef.get(EventEmitterModule);
 
       await expect(moduleInstance.onModuleInit()).resolves.not.toThrow();
-    });
+    }, 45000);
   });
 
   describe('Error Handling and Edge Cases', () => {

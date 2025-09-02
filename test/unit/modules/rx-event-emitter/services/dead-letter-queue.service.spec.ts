@@ -308,6 +308,9 @@ describe('DeadLetterQueueService', () => {
     });
 
     it('should handle retry failure gracefully', async () => {
+      // Use real timers for this complex async test
+      jest.useRealTimers();
+
       const mockEvent = createMockEvent();
       const error = new Error('Test error');
 
@@ -320,11 +323,14 @@ describe('DeadLetterQueueService', () => {
       const result = await service.processNext();
       expect(result).toBe(true); // processNext returns true if entries exist
 
-      // Wait for async processing to complete
+      // Allow sufficient time for RxJS stream processing with real timers
       await new Promise((resolve) => setTimeout(resolve, 100));
       // Check that the entry is still there but with incremented attempts
       const entriesAfterFailure = await service.getEntries();
       expect(entriesAfterFailure).toHaveLength(1);
+
+      // Restore fake timers for other tests
+      jest.useFakeTimers();
     });
 
     it('should handle multiple retry failures', async () => {
@@ -351,6 +357,9 @@ describe('DeadLetterQueueService', () => {
     });
 
     it('should handle auto retry processing', async () => {
+      // Use real timers for this complex async test
+      jest.useRealTimers();
+
       const mockEvent = createMockEvent();
       const error = new Error('Test error');
 
@@ -359,11 +368,16 @@ describe('DeadLetterQueueService', () => {
       mockEventEmitterService.emit.mockResolvedValue(undefined);
 
       // First trigger the retry processing
-      await service.processNext();
-      // Wait for the async processing to complete
-      await new Promise((resolve) => process.nextTick(resolve));
+      const result = await service.processNext();
+      expect(result).toBe(true);
+
+      // Allow sufficient time for RxJS stream processing with real timers
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
       expect(mockEventEmitterService.emit).toHaveBeenCalled();
+
+      // Restore fake timers for other tests
+      jest.useFakeTimers();
     });
   });
 
@@ -563,6 +577,9 @@ describe('DeadLetterQueueService', () => {
     });
 
     it('should mark entries as permanent failures after max retries', async () => {
+      // Use real timers for this complex async test
+      jest.useRealTimers();
+
       const mockEvent = createMockEvent();
       const error = new Error('Test error');
 
@@ -570,13 +587,17 @@ describe('DeadLetterQueueService', () => {
       mockEventEmitterService.emit.mockRejectedValue(new Error('Persistent error'));
 
       // Trigger processing - immediate policy has maxRetries: 1
-      await service.processNext();
-      // Wait for async processing to complete
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      const result = await service.processNext();
+      expect(result).toBe(true);
+      // Allow immediate completion since it's immediate policy with real timers
+      await new Promise((resolve) => setTimeout(resolve, 100));
       // Check that the entry is handled appropriately
       const metrics = service.getMetrics();
       // Since immediate policy exhausts retries quickly, check that processing occurred
       expect(typeof metrics.permanentFailures).toBe('number');
+
+      // Restore fake timers for other tests
+      jest.useFakeTimers();
     });
 
     it('should not retry PERMANENT errors', async () => {
@@ -613,20 +634,27 @@ describe('DeadLetterQueueService', () => {
     });
 
     it('should update policy statistics correctly', async () => {
+      // Use real timers for this complex async test
+      jest.useRealTimers();
+
       const mockEvent = createMockEvent();
       const error = new Error('Test error');
 
       // Test successful retry
       await service.addEntry(mockEvent, error);
       mockEventEmitterService.emit.mockResolvedValueOnce(undefined);
-      await service.processNext();
-      // Wait for async processing to complete
+      const result = await service.processNext();
+      expect(result).toBe(true);
+      // Allow sufficient time for RxJS stream processing with real timers
       await new Promise((resolve) => setTimeout(resolve, 100));
 
       const metrics = service.getMetrics();
       expect(metrics.policyStats.exponential).toBeDefined();
       // Check that the metrics structure is correct, don't require specific values
       expect(typeof metrics.successfulReprocessing).toBe('number');
+
+      // Restore fake timers for other tests
+      jest.useFakeTimers();
     });
   });
 

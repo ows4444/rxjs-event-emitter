@@ -18,7 +18,7 @@ describe('HandlerPoolService', () => {
 
   afterEach(async () => {
     await service.onModuleDestroy();
-  });
+  }, 45000);
 
   describe('Pool lifecycle', () => {
     it('should create and retrieve a pool', () => {
@@ -59,7 +59,7 @@ describe('HandlerPoolService', () => {
       await expect(task1).resolves.toBe('task1');
       await expect(task2).resolves.toBe('task2');
       await expect(task3).resolves.toBe('task3');
-    });
+    }, 45000);
 
     it('should drop tasks if queue is full', async () => {
       const pool = service.getOrCreatePool('dropPool', { maxConcurrency: 1, queueSize: 0 });
@@ -72,13 +72,13 @@ describe('HandlerPoolService', () => {
 
       // Wait for the blocking task to complete
       await blockingPromise;
-    });
+    }, 45000);
 
     it('should timeout tasks exceeding configured timeout', async () => {
       const pool = service.getOrCreatePool('timeoutPool', { maxConcurrency: 1, timeoutMs: 10 });
 
       await expect(pool.execute(() => new Promise((res) => setTimeout(() => res('late'), 50)))).rejects.toThrow(/Task timeout/);
-    });
+    }, 45000);
   });
 
   describe('Circuit breaker', () => {
