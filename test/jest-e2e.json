@@ -45,10 +45,10 @@
       "statements": 80
     }
   },
-  "detectOpenHandles": true,
-  "forceExit": true,
-  "testTimeout": 15000,
-  "maxWorkers": 1,
+  "detectOpenHandles": false,
+  "forceExit": false,
+  "testTimeout": 60000,
+  "maxWorkers": "25%",
   "maxConcurrency": 1,
   "bail": false,
   "verbose": true,

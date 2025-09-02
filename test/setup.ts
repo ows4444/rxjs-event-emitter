@@ -5,12 +5,14 @@ config({ path: '.env.test' });
 import { Logger } from '@nestjs/common';
 Logger.overrideLogger([]);
 
+// Optimize for enterprise NestJS service testing
 beforeAll(() => {
-  jest.useFakeTimers();
+  // Use real timers for NestJS service lifecycle management
+  jest.useRealTimers();
 });
 
 afterAll(() => {
-  jest.useRealTimers();
+  // Fast cleanup for performance
   jest.restoreAllMocks();
 });
 
@@ -19,5 +21,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // Minimal cleanup for performance
   jest.clearAllTimers();
 });

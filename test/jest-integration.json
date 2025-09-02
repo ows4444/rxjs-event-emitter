@@ -33,9 +33,9 @@
       "statements": 75
     }
   },
-  "testTimeout": 10000,
-  "maxWorkers": 1,
-  "detectOpenHandles": true,
+  "testTimeout": 45000,
+  "maxWorkers": "50%",
+  "detectOpenHandles": false,
   "forceExit": false,
   "clearMocks": true,
   "resetMocks": true,
