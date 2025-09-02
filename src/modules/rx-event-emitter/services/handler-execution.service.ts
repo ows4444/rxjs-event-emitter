@@ -119,6 +119,7 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
   private readonly executionResults$ = new Subject<DetailedExecutionResult>();
   private readonly stats$ = new BehaviorSubject<Record<string, HandlerExecutionStats>>({});
 
+  private cleanupInterval?: NodeJS.Timeout;
   private readonly config: Required<ExecutionConfig>;
 
   constructor(
@@ -129,13 +130,13 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
   ) {
     this.config = {
       enabled: true,
-      defaultTimeout: 30000,
+      defaultTimeout: this.options.defaultTimeout ?? 30000,
       maxRetries: 3,
       retryDelay: 1000,
       circuitBreaker: {
-        enabled: true,
-        failureThreshold: 10,
-        recoveryTimeout: 30000,
+        enabled: this.options.circuitBreaker?.enabled ?? true,
+        failureThreshold: this.options.circuitBreaker?.failureThreshold ?? 10,
+        recoveryTimeout: this.options.circuitBreaker?.recoveryTimeout ?? 30000,
         minimumThroughput: 5,
       },
       bulkhead: {
@@ -168,6 +169,12 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleDestroy(): Promise<void> {
     this.logger.log('Shutting down Handler Execution Service...');
+
+    // Clear cleanup interval
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = undefined;
+    }
 
     this.shutdown$.next();
     this.shutdown$.complete();
@@ -636,14 +643,10 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
   }
 
   private startPeriodicCleanup(): void {
-    const _cleanupInterval = setInterval(() => {
+    this.cleanupInterval = setInterval(() => {
       this.cleanupOldStats();
       this.cleanupRateLimiters();
     }, 300000); // Every 5 minutes
-    //
-    //     this.shutdown$.subscribe(() => {
-    //       clearInterval(cleanupInterval);
-    //     });
   }
 
   private cleanupOldStats(): void {

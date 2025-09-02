@@ -355,7 +355,7 @@ export class StreamManagementService implements OnModuleInit, OnModuleDestroy {
     };
 
     this.managedStreams.set(streamId, managedStream);
-    
+
     // Initialize stream health
     const initialHealth: StreamHealth = {
       streamId,
@@ -366,7 +366,7 @@ export class StreamManagementService implements OnModuleInit, OnModuleDestroy {
       lastHealthCheck: Date.now(),
     };
     this.streamHealth.set(streamId, initialHealth);
-    
+
     this.streamUpdates$.next({ action: 'created', streamId });
 
     this.logger.debug(`Created managed stream: ${name} (${streamId})`);
@@ -598,7 +598,7 @@ export class StreamManagementService implements OnModuleInit, OnModuleDestroy {
     this.logger.error(`Stream ${streamId} error:`, error);
     this.recordStreamMetric(streamId, 'error');
     this.streamUpdates$.next({ action: 'error', streamId, details: error });
-    
+
     // Update health status for errored stream
     const health = this.streamHealth.get(streamId);
     if (health) {
@@ -612,14 +612,14 @@ export class StreamManagementService implements OnModuleInit, OnModuleDestroy {
       };
       this.streamHealth.set(streamId, updatedHealth);
     }
-    
+
     return EMPTY;
   }
 
   private handleStreamCompletion(streamId: string): void {
     this.logger.debug(`Stream ${streamId} completed`);
     this.managedStreams.delete(streamId);
-    
+
     // Keep health information but mark stream as completed
     const health = this.streamHealth.get(streamId);
     if (health) {
