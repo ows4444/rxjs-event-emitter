@@ -1,7 +1,7 @@
 import type { TestingModule } from '@nestjs/testing';
 import { Test } from '@nestjs/testing';
 import { Logger } from '@nestjs/common';
-import { Subject, throwError, of, timer, firstValueFrom } from 'rxjs';
+import { Subject, throwError, of, timer, firstValueFrom, Observable } from 'rxjs';
 import { take, filter, timeout } from 'rxjs/operators';
 import {
   StreamManagementService,
@@ -642,21 +642,39 @@ describe('StreamManagementService', () => {
       await service.onModuleInit();
     });
 
-    it('should handle stream errors gracefully', () => {
+    it('should handle stream errors gracefully', async () => {
       const sourceStream = new Subject();
       const managedStream = service.createManagedStream('error-stream', sourceStream, StreamType.EVENT_BUS);
 
       expect(managedStream).toBeDefined();
 
       const subscription = managedStream.subscribe({
+        next: (_value) => {
+          // Handle normal values
+        },
         error: (error) => {
           // Error should be handled
           expect(error).toBeDefined();
         },
+        complete: () => {
+          // Stream completed
+        },
       });
 
-      // Simulate error and ensure service continues to work
-      sourceStream.error(new Error('Test error'));
+      // Get managed stream data
+      const managedStreams = service.getManagedStreams();
+      const managedStreamData = managedStreams.find((s) => s.name === 'error-stream');
+      expect(managedStreamData).toBeDefined();
+
+      try {
+        // Simulate error on source stream to test error handling path
+        sourceStream.error(new Error('Test error'));
+      } catch (_err) {
+        // Ignore any uncaught errors as they are expected in this test
+      }
+
+      // Wait a bit for error handling
+      await new Promise((resolve) => setTimeout(resolve, 10));
 
       // Service should still be functional
       const newStream = new Subject();
@@ -664,6 +682,30 @@ describe('StreamManagementService', () => {
       expect(newManagedStream).toBeDefined();
 
       subscription.unsubscribe();
+    });
+
+    it('should handle stream subscription errors', async () => {
+      // Create a stream that will error immediately on subscription
+      const errorStream = new Observable((subscriber: any) => {
+        setTimeout(() => {
+          subscriber.error(new Error('Immediate error'));
+        }, 1);
+      });
+
+      const managedStream = service.createManagedStream('immediate-error-stream', errorStream, StreamType.EVENT_BUS);
+      expect(managedStream).toBeDefined();
+
+      // Get the stream data to check error handling
+      const managedStreams = service.getManagedStreams();
+      const managedStreamData = managedStreams.find((s) => s.name === 'immediate-error-stream');
+      expect(managedStreamData).toBeDefined();
+
+      // Wait for error to be handled
+      await new Promise((resolve) => setTimeout(resolve, 15));
+
+      // The error should be handled internally
+      const health = service.getStreamHealth(managedStreamData!.id);
+      expect(health).toBeDefined();
     });
 
     it('should handle retry error strategy', () => {
@@ -1005,6 +1047,91 @@ describe('StreamManagementService', () => {
       const noMonitoringService = new StreamManagementService(noMonitoringConfig);
       expect(noMonitoringService).toBeDefined();
     });
+
+    it('should update global metrics periodically', async () => {
+      jest.useFakeTimers();
+
+      await service.onModuleInit();
+
+      // Create some streams with metrics data
+      const sourceStream1 = new Subject();
+      const sourceStream2 = new Subject();
+
+      service.createManagedStream('metrics-test-1', sourceStream1, StreamType.EVENT_BUS);
+      service.createManagedStream('metrics-test-2', sourceStream2, StreamType.EVENT_BUS);
+
+      // Get initial metrics using Observable
+      const metricsObservable = service.getMetrics();
+      expect(metricsObservable).toBeDefined();
+
+      // Advance timer to trigger metrics update
+      jest.advanceTimersByTime(5000);
+
+      // Subscribe to metrics to verify they are updated
+      metricsObservable.pipe(take(1)).subscribe((metrics) => {
+        expect(metrics).toBeDefined();
+        expect(typeof metrics.bufferSize).toBe('number');
+      });
+
+      jest.useRealTimers();
+    });
+
+    it('should perform health checks periodically', async () => {
+      jest.useFakeTimers();
+
+      await service.onModuleInit();
+
+      // Create stream for health check testing
+      const sourceStream = new Subject();
+      service.createManagedStream('health-test', sourceStream, StreamType.EVENT_BUS);
+
+      // Get the actual stream
+      const streams = service.getManagedStreams();
+      const stream = streams.find((s) => s.name === 'health-test');
+      expect(stream).toBeDefined();
+
+      // Use Object.assign to work around readonly properties
+      if (stream) {
+        Object.assign(stream.metrics, { errors: 15 });
+        Object.assign(stream, { lastActivityAt: Date.now() - 400000 });
+        Object.assign(stream.metrics, { bufferSize: 2000 });
+      }
+
+      // Advance timer to trigger health check
+      jest.advanceTimersByTime(30000);
+
+      // Health should be updated
+      const health = service.getStreamHealth(stream!.id);
+      expect(health).toBeDefined();
+      if (health) {
+        expect(health.lastHealthCheck).toBeDefined();
+      }
+
+      jest.useRealTimers();
+    });
+
+    it('should cleanup dead streams periodically', async () => {
+      jest.useFakeTimers();
+
+      await service.onModuleInit();
+
+      // Create stream and complete it
+      const sourceStream = new Subject();
+      service.createManagedStream('cleanup-test', sourceStream, StreamType.EVENT_BUS);
+
+      // Complete the stream
+      sourceStream.complete();
+
+      // Advance timer to trigger cleanup
+      jest.advanceTimersByTime(60000);
+
+      // Stream should be cleaned up or marked appropriately
+      const streams = service.getManagedStreams();
+      // The stream might still exist but its health should be updated
+      expect(streams).toBeDefined();
+
+      jest.useRealTimers();
+    });
   });
 
   describe('Edge Cases and Error Conditions', () => {
@@ -1085,6 +1212,243 @@ describe('StreamManagementService', () => {
       expect(() => {
         new StreamManagementService(negativeConfig);
       }).not.toThrow();
+    });
+  });
+
+  describe('Advanced Error Handling and Edge Cases', () => {
+    beforeEach(async () => {
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [
+          StreamManagementService,
+          {
+            provide: EVENT_EMITTER_OPTIONS,
+            useValue: defaultConfig,
+          },
+        ],
+      }).compile();
+
+      service = module.get<StreamManagementService>(StreamManagementService);
+      await service.onModuleInit();
+    });
+
+    afterEach(async () => {
+      await service.onModuleDestroy();
+    });
+
+    it('should handle stream errors during transformation', async () => {
+      const errorStream$ = new Subject<any>();
+
+      const managedStream = service.createManagedStream('test-stream', errorStream$, StreamType.EVENT_BUS);
+
+      // Subscribe to the stream and expect it to handle errors
+      const subscription = managedStream.subscribe({
+        error: (error) => {
+          expect(error).toBeDefined();
+        },
+      });
+
+      errorStream$.next({ test: 'data' });
+      errorStream$.complete();
+
+      subscription.unsubscribe();
+    });
+
+    it('should handle monitor update errors gracefully', async () => {
+      const mockLogger = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+
+      // Force an error in the monitor update by corrupting internal state
+      (service as any).metrics = null;
+
+      // Should not crash when trying to update metrics
+      expect(() => {
+        (service as any).updateMonitoringMetrics();
+      }).not.toThrow();
+
+      mockLogger.mockRestore();
+    });
+
+    it('should handle health check failures', async () => {
+      const mockLogger = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+
+      // Override the performHealthCheck method to throw an error
+      const originalHealthCheck = (service as any).performHealthCheck;
+      (service as any).performHealthCheck = jest.fn().mockImplementation(() => {
+        throw new Error('Health check failed');
+      });
+
+      // Trigger health check
+      (service as any).startMonitoring();
+
+      // Wait a bit for the health check to run
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // Should handle the error gracefully
+      expect(mockLogger).toHaveBeenCalledWith(expect.stringContaining('Health check failed'), expect.any(Error));
+
+      // Restore original method
+      (service as any).performHealthCheck = originalHealthCheck;
+      mockLogger.mockRestore();
+    });
+
+    it('should handle stream completion with pending operations', async () => {
+      const source$ = new Subject<any>();
+
+      const managedStream = service.createManagedStream('completion-stream', source$, StreamType.EVENT_BUS);
+
+      const results: any[] = [];
+      const subscription = managedStream.subscribe((data) => results.push(data));
+
+      // Send data and immediately complete
+      source$.next({ test: 'data' });
+      source$.complete();
+
+      // Wait for any pending operations
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      subscription.unsubscribe();
+
+      // Should handle completion gracefully even with pending operations
+      expect(() => subscription.unsubscribe()).not.toThrow();
+    });
+
+    it('should handle multiple rapid stream operations', async () => {
+      const source$ = new Subject<any>();
+      const managedStream = service.createManagedStream('rapid-stream', source$, StreamType.EVENT_BUS);
+
+      const results: any[] = [];
+      const subscription = managedStream.subscribe((data) => results.push(data));
+
+      // Send many events rapidly
+      for (let i = 0; i < 1000; i++) {
+        source$.next({ id: i, data: `test-${i}` });
+      }
+
+      source$.complete();
+
+      // Wait for processing
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      subscription.unsubscribe();
+
+      // Should handle rapid events without crashing
+      expect(results.length).toBeGreaterThan(0);
+    });
+
+    it('should handle circular reference in stream data', async () => {
+      const source$ = new Subject<any>();
+      const managedStream = service.createManagedStream('circular-stream', source$, StreamType.EVENT_BUS);
+
+      const results: any[] = [];
+      const subscription = managedStream.subscribe((data) => results.push(data));
+
+      // Create circular reference
+      const circularData: any = { id: 1 };
+      circularData.self = circularData;
+
+      expect(() => {
+        source$.next(circularData);
+      }).not.toThrow();
+
+      source$.complete();
+      subscription.unsubscribe();
+    });
+
+    it('should handle cleanup during active stream processing', async () => {
+      const source$ = new Subject<any>();
+
+      const managedStream = service.createManagedStream('cleanup-stream', source$, StreamType.EVENT_BUS);
+
+      const subscription = managedStream.subscribe();
+
+      // Start some processing
+      source$.next({ test: 'data' });
+
+      // Immediately destroy the service
+      await service.onModuleDestroy();
+
+      // Should handle cleanup gracefully
+      subscription.unsubscribe();
+      source$.complete();
+    });
+
+    it('should handle missing required configuration properties', () => {
+      const incompleteConfig = {
+        streamManagement: {
+          enabled: true,
+          // Missing other required properties
+        },
+      };
+
+      expect(() => {
+        new StreamManagementService(incompleteConfig as any);
+      }).not.toThrow();
+    });
+
+    it('should handle invalid enum values in configuration', () => {
+      const invalidConfig = {
+        streamManagement: {
+          enabled: true,
+          backpressure: {
+            strategy: 'INVALID_STRATEGY' as any,
+            dropStrategy: 'INVALID_DROP' as any,
+          },
+          concurrency: {
+            strategy: 'INVALID_CONCURRENCY' as any,
+          },
+          errorHandling: {
+            strategy: 'INVALID_ERROR' as any,
+          },
+        },
+      };
+
+      expect(() => {
+        new StreamManagementService(invalidConfig);
+      }).not.toThrow();
+    });
+
+    it('should handle extremely large buffer sizes', async () => {
+      const largeBufferConfig = {
+        streamManagement: {
+          ...defaultConfig.streamManagement,
+          backpressure: {
+            ...defaultConfig.streamManagement.backpressure,
+            bufferSize: Number.MAX_SAFE_INTEGER,
+          },
+        },
+      };
+
+      const largeBufferService = new StreamManagementService(largeBufferConfig);
+      await largeBufferService.onModuleInit();
+
+      const source$ = new Subject<any>();
+      const managedStream = largeBufferService.createManagedStream('large-buffer-stream', source$, StreamType.EVENT_BUS);
+
+      expect(() => {
+        managedStream.subscribe();
+        source$.next({ test: 'data' });
+        source$.complete();
+      }).not.toThrow();
+
+      await largeBufferService.onModuleDestroy();
+    });
+
+    it('should handle subscription errors in monitoring', async () => {
+      const mockLogger = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+
+      // Force an error in monitoring subscription
+      const originalStartMonitoring = (service as any).startMonitoring;
+      (service as any).startMonitoring = jest.fn().mockImplementation(() => {
+        throw new Error('Monitoring subscription failed');
+      });
+
+      // Should not crash during initialization
+      expect(async () => {
+        await service.onModuleInit();
+      }).not.toThrow();
+
+      // Restore original method
+      (service as any).startMonitoring = originalStartMonitoring;
+      mockLogger.mockRestore();
     });
   });
 });

@@ -3,7 +3,7 @@
  */
 
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject, Optional } from '@nestjs/common';
-import { BehaviorSubject, Observable, Subject, from, timer, race, throwError } from 'rxjs';
+import { BehaviorSubject, Observable, Subject, from, timer, race, of } from 'rxjs';
 import { takeUntil, switchMap } from 'rxjs/operators';
 import { v4 as uuidv4 } from 'uuid';
 import {
@@ -210,21 +210,22 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
     const context = this.createExecutionContext(handler, event, executionId, options);
     const startTime = Date.now();
 
-    try {
-      this.activeExecutions.set(executionId, context);
+    this.activeExecutions.set(executionId, context);
 
+    try {
       // Execute with proper pool isolation
       const result = await this.executeWithRetryAndTimeout(handler, event, context);
 
       const executionResult = this.createDetailedResult(result, executionId, handlerId, context, startTime);
 
-      this.handleExecutionSuccess(handlerId, executionResult);
-      return executionResult;
-    } catch (error) {
-      const executionResult = this.createErrorResult(error as Error, executionId, handlerId, context, startTime);
-
-      await this.handleExecutionFailure(handlerId, event, error as Error, executionResult);
-      throw error;
+      if (result.success) {
+        this.handleExecutionSuccess(handlerId, executionResult);
+        return executionResult;
+      } else {
+        // Handler failed, treat as error
+        await this.handleExecutionFailure(handlerId, event, result.error!, executionResult);
+        throw result.error!;
+      }
     } finally {
       this.activeExecutions.delete(executionId);
     }
@@ -307,6 +308,11 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
       try {
         let _result: unknown;
 
+        // Check if handler has a valid handler function
+        if (!handler.handler || typeof handler.handler !== 'function') {
+          throw new Error(`Invalid handler: handler function is not defined for ${this.generateHandlerId(handler)}`);
+        }
+
         if (this.handlerPoolService) {
           // Execute in isolated pool
           _result = await this.handlerPoolService.executeInPool(context.poolName, async () => await handler.handler(event));
@@ -334,7 +340,19 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
       }
     };
 
-    return race(from(executeOnce()), timer(context.executionTimeout).pipe(switchMap(() => throwError(new Error('Handler execution timeout')))))
+    return race(
+      from(executeOnce()),
+      timer(context.executionTimeout).pipe(
+        switchMap(() =>
+          of({
+            success: false,
+            handlerId: this.generateHandlerId(handler),
+            executionTime: context.executionTimeout,
+            error: new Error('Handler execution timeout'),
+          } as ExecutionResult),
+        ),
+      ),
+    )
       .pipe(takeUntil(this.shutdown$))
       .toPromise() as Promise<ExecutionResult>;
   }
@@ -444,11 +462,11 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
     }
 
     // Send to dead letter queue if configured
-    //     if (this.dlqService && !result.needsRetry) {
-    //       await this.dlqService.addEntry(event, error);
-    //     }
-    //
-    //     this.executionResults$.next(result);
+    if (this.dlqService && !result.needsRetry) {
+      await this.dlqService.addEntry(event, error);
+    }
+
+    this.executionResults$.next(result);
   }
 
   private updateExecutionStats(handlerId: string, success: boolean, duration: number, error?: Error): void {

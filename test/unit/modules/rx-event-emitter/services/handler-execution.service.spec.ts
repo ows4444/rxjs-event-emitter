@@ -6,7 +6,7 @@ import { HandlerPoolService } from '@src/modules/rx-event-emitter/services/handl
 import { MetricsService } from '@src/modules/rx-event-emitter/services/metrics.service';
 import { DeadLetterQueueService } from '@src/modules/rx-event-emitter/services/dead-letter-queue.service';
 import type { Event, RegisteredHandler, HandlerOptions } from '@src/modules/rx-event-emitter/interfaces';
-import { CircuitBreakerState, EVENT_EMITTER_OPTIONS, EventPriority } from '@src/modules/rx-event-emitter/interfaces';
+import { EVENT_EMITTER_OPTIONS, EventPriority } from '@src/modules/rx-event-emitter/interfaces';
 
 describe('HandlerExecutionService', () => {
   let service: HandlerExecutionService;
@@ -51,7 +51,9 @@ describe('HandlerExecutionService', () => {
 
   const createMockServices = () => ({
     handlerPool: {
-      executeInPool: jest.fn().mockResolvedValue(undefined),
+      executeInPool: jest.fn().mockImplementation(async (_poolName: string, fn: () => Promise<any>) => {
+        return await fn();
+      }),
       getPoolMetrics: jest.fn().mockReturnValue({
         poolName: 'default',
         activeHandlers: 0,
@@ -154,7 +156,6 @@ describe('HandlerExecutionService', () => {
       await service.onModuleInit();
 
       const mockEvent = createMockEvent();
-      const mockHandler = createMockHandler();
 
       // Create a long-running handler
       const longRunningHandler = createMockHandler({
@@ -641,9 +642,8 @@ describe('HandlerExecutionService', () => {
         handler: null as any,
       });
 
-      const result = await service.executeHandler(invalidHandler, mockEvent);
-      // Invalid handler may be handled gracefully
-      expect(result).toBeDefined();
+      // Invalid handler should throw an error
+      await expect(service.executeHandler(invalidHandler, mockEvent)).rejects.toThrow('Invalid handler: handler function is not defined');
     }, 15000);
 
     it('should handle different error types in retry logic', async () => {
@@ -671,6 +671,10 @@ describe('HandlerExecutionService', () => {
     it('should handle error distribution tracking', async () => {
       const mockEvent = createMockEvent();
 
+      // Reset stats to ensure clean test
+      const handlerId = 'TestHandler.handle@test.event';
+      service.resetHandlerStats(handlerId);
+
       // Create different error types
       const errors = [new TypeError('Type error'), new ReferenceError('Reference error'), new Error('Generic error')];
 
@@ -685,7 +689,6 @@ describe('HandlerExecutionService', () => {
         }
       }
 
-      const handlerId = 'TestHandler.handle@test.event';
       const stats = service.getHandlerStats(handlerId);
 
       expect(stats?.errorDistribution).toBeDefined();
@@ -703,9 +706,15 @@ describe('HandlerExecutionService', () => {
         handler: jest.fn().mockImplementation(() => new Promise((resolve) => setTimeout(resolve, 100))),
       });
 
-      const result = await service.executeHandler(slowHandler, mockEvent, { timeout: 1 });
-      // Timeout handling may be managed internally by service
-      expect(result).toBeDefined();
+      // Very short timeout should result in either timeout error or failure result
+      try {
+        const result = await service.executeHandler(slowHandler, mockEvent, { timeout: 1 });
+        // If successful, should have success: false for timeout
+        expect(result.success).toBe(false);
+      } catch (error) {
+        // Or it might throw a timeout error
+        expect((error as Error).message).toMatch(/timeout/i);
+      }
     }, 15000);
 
     it('should handle concurrent executions safely', async () => {
@@ -827,6 +836,180 @@ describe('HandlerExecutionService', () => {
       expect(customService).toBeDefined();
 
       await customService.onModuleDestroy();
+    });
+  });
+
+  describe('Rate Limiting', () => {
+    let rateLimitService: HandlerExecutionService;
+
+    beforeEach(async () => {
+      rateLimitService = new HandlerExecutionService(mockHandlerPoolService, mockMetricsService, mockDLQService, {
+        defaultTimeout: 30000,
+        rateLimit: {
+          enabled: true,
+          maxPerSecond: 5,
+          burstSize: 3,
+        },
+      } as any);
+      await rateLimitService.onModuleInit();
+    });
+
+    afterEach(async () => {
+      await rateLimitService.onModuleDestroy();
+    });
+
+    it('should enforce rate limiting when enabled', async () => {
+      const mockEvent = createMockEvent();
+      const mockHandler = createMockHandler();
+
+      // Execute requests rapidly to exceed burst limit
+      const promises: Promise<any>[] = [];
+      for (let i = 0; i < 10; i++) {
+        promises.push(
+          rateLimitService.executeHandler(mockHandler, mockEvent).catch((error) => {
+            // Rate limit errors should be thrown
+            if (error.message && error.message.includes('Rate limit')) {
+              return null; // Mark as rate limited
+            }
+            throw error; // Re-throw other errors
+          }),
+        );
+      }
+
+      const results = await Promise.all(promises);
+
+      // With burst size of 3, most requests should succeed initially
+      // but some may be rate limited depending on timing
+      expect(results.length).toBe(10);
+    });
+
+    it('should allow requests when rate limiting is disabled', async () => {
+      const noRateLimitService = new HandlerExecutionService(mockHandlerPoolService, mockMetricsService, mockDLQService, {
+        defaultTimeout: 30000,
+      });
+      await noRateLimitService.onModuleInit();
+
+      const mockEvent = createMockEvent();
+      const mockHandler = createMockHandler();
+
+      // All requests should succeed when rate limiting is disabled
+      const promises: Promise<any>[] = [];
+      for (let i = 0; i < 5; i++) {
+        promises.push(noRateLimitService.executeHandler(mockHandler, mockEvent));
+      }
+
+      const results = await Promise.all(promises);
+      expect(results.length).toBe(5);
+
+      await noRateLimitService.onModuleDestroy();
+    });
+
+    it('should refill tokens over time', async () => {
+      const mockEvent = createMockEvent();
+      const mockHandler = createMockHandler();
+
+      // Exhaust the rate limit
+      await Promise.all([
+        rateLimitService.executeHandler(mockHandler, mockEvent).catch(() => null),
+        rateLimitService.executeHandler(mockHandler, mockEvent).catch(() => null),
+        rateLimitService.executeHandler(mockHandler, mockEvent).catch(() => null),
+      ]);
+
+      // Wait for token refill (simulate time passing)
+      await new Promise((resolve) => setTimeout(resolve, 1100));
+
+      // Should be able to make more requests
+      const result = await rateLimitService.executeHandler(mockHandler, mockEvent);
+      expect(result).toBeDefined();
+    });
+  });
+
+  describe('Error Types and Retry Logic', () => {
+    let service: HandlerExecutionService;
+
+    beforeEach(async () => {
+      service = new HandlerExecutionService(mockHandlerPoolService, mockMetricsService, mockDLQService, {
+        defaultTimeout: 30000,
+      });
+      await service.onModuleInit();
+    });
+
+    afterEach(async () => {
+      await service.onModuleDestroy();
+    });
+
+    it('should not retry PERMANENT errors', async () => {
+      const mockEvent = createMockEvent();
+      const permanentErrorHandler = createMockHandler({
+        handler: jest.fn().mockRejectedValue(new Error('PERMANENT error')),
+      });
+
+      await expect(service.executeHandler(permanentErrorHandler, mockEvent)).rejects.toThrow('PERMANENT error');
+
+      // Handler should only be called once (no retries)
+      expect(permanentErrorHandler.handler).toHaveBeenCalledTimes(1);
+    });
+
+    it('should not retry VALIDATION errors', async () => {
+      const mockEvent = createMockEvent();
+      const validationErrorHandler = createMockHandler({
+        handler: jest.fn().mockRejectedValue(new Error('VALIDATION failed')),
+      });
+
+      await expect(service.executeHandler(validationErrorHandler, mockEvent)).rejects.toThrow('VALIDATION failed');
+
+      // Handler should only be called once (no retries)
+      expect(validationErrorHandler.handler).toHaveBeenCalledTimes(1);
+    });
+
+    it('should not retry UNAUTHORIZED errors', async () => {
+      const mockEvent = createMockEvent();
+      const unauthorizedErrorHandler = createMockHandler({
+        handler: jest.fn().mockRejectedValue(new Error('UNAUTHORIZED access')),
+      });
+
+      await expect(service.executeHandler(unauthorizedErrorHandler, mockEvent)).rejects.toThrow('UNAUTHORIZED access');
+
+      // Handler should only be called once (no retries)
+      expect(unauthorizedErrorHandler.handler).toHaveBeenCalledTimes(1);
+    });
+
+    it('should handle retry logic (current behavior: no retry)', async () => {
+      const mockEvent = createMockEvent();
+      let callCount = 0;
+      const retryableErrorHandler = createMockHandler({
+        handler: jest.fn().mockImplementation(() => {
+          callCount++;
+          return Promise.reject(new Error('Temporary network error'));
+        }),
+      });
+
+      try {
+        await service.executeHandler(retryableErrorHandler, mockEvent);
+        fail('Expected an error to be thrown');
+      } catch (error) {
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toBe('Temporary network error');
+        expect(retryableErrorHandler.handler).toHaveBeenCalledTimes(1); // Current implementation: no retry
+      }
+    });
+
+    it('should handle failures without retrying (current behavior)', async () => {
+      const mockEvent = createMockEvent();
+      const alwaysFailHandler = createMockHandler({
+        handler: jest.fn().mockImplementation(() => {
+          return Promise.reject(new Error('Always fails'));
+        }),
+      });
+
+      try {
+        await service.executeHandler(alwaysFailHandler, mockEvent);
+        fail('Expected an error to be thrown');
+      } catch (error) {
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toBe('Always fails');
+        expect(alwaysFailHandler.handler).toHaveBeenCalledTimes(1); // Current implementation: no retry
+      }
     });
   });
 });

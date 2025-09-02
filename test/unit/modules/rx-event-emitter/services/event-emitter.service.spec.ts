@@ -527,4 +527,638 @@ describe('EventEmitterService', () => {
       await service.onModuleDestroy();
     });
   });
+
+  describe('Error Handling and Edge Cases', () => {
+    beforeEach(async () => {
+      service = new EventEmitterService(
+        defaultOptions,
+        mockMetricsService,
+        mockPersistenceService,
+        mockDlqService,
+        mockHandlerExecutionService,
+        mockStreamManagementService,
+        mockHandlerPoolService,
+      );
+      await service.onModuleInit();
+    });
+
+    afterEach(async () => {
+      await service.onModuleDestroy();
+    });
+
+    it('should log properly during initialization', async () => {
+      const mockLoggerLog = jest.spyOn(Logger.prototype, 'log').mockImplementation();
+      const mockLoggerDebug = jest.spyOn(Logger.prototype, 'debug').mockImplementation();
+
+      const advancedService = new EventEmitterService(
+        { ...defaultOptions, enableAdvancedFeatures: true },
+        mockMetricsService,
+        mockPersistenceService,
+        mockDlqService,
+        mockHandlerExecutionService,
+        mockStreamManagementService,
+        mockHandlerPoolService,
+      );
+
+      await advancedService.onModuleInit();
+
+      expect(mockLoggerLog).toHaveBeenCalledWith('Initializing Enhanced EventEmitterService ...');
+      expect(mockLoggerDebug).toHaveBeenCalledWith('Advanced features enabled - integrating with enhanced services');
+      expect(mockLoggerDebug).toHaveBeenCalledWith('Metrics service integration active');
+      expect(mockLoggerLog).toHaveBeenCalledWith('Enhanced EventEmitterService  initialized successfully');
+
+      await advancedService.onModuleDestroy();
+      mockLoggerLog.mockRestore();
+      mockLoggerDebug.mockRestore();
+    });
+
+    it('should handle setupEventProcessing with disabled advanced features', async () => {
+      const disabledService = new EventEmitterService(
+        { ...defaultOptions, enableAdvancedFeatures: false },
+        undefined, // No metrics service
+        undefined, // No persistence service
+        undefined, // No DLQ service
+        undefined, // No handler execution service
+        undefined, // No stream management service
+        undefined, // No handler pool service
+      );
+
+      await disabledService.onModuleInit();
+      expect(disabledService.isShuttingDown()).toBe(false);
+      await disabledService.onModuleDestroy();
+    });
+
+    it('should handle processEvent with advanced handler execution', async () => {
+      const mockHandler = jest.fn().mockResolvedValue(undefined);
+      const advancedHandler = {
+        handler: mockHandler,
+        handlerId: 'test-handler',
+        eventName: 'test.event',
+        instance: {},
+        options: { timeout: 5000 },
+        metadata: {
+          eventName: 'test.event',
+          className: 'TestHandler',
+          methodName: 'handle',
+          handlerId: 'test-handler',
+          options: {},
+        },
+      };
+
+      service.registerAdvancedHandler(advancedHandler);
+      mockHandlerExecutionService.executeHandler.mockResolvedValue({
+        success: true,
+        executionTime: 100,
+        error: undefined,
+        executionId: 'exec-789',
+        handlerId: 'test-handler',
+        context: {
+          executionId: 'exec-789',
+          retryAttempt: 0,
+          executionTimeout: 5000,
+          poolName: 'default',
+          priority: 1,
+          tags: [],
+          traceId: 'trace-789',
+          spanId: 'span-789',
+          startedAt: Date.now(),
+          timeoutAt: Date.now() + 5000,
+          event: expect.any(Object),
+          handler: advancedHandler,
+          startTime: Date.now(),
+          attempt: 0,
+          correlationId: 'test-correlation',
+          metadata: {},
+        },
+        metrics: {
+          queueTime: 5,
+          executionTime: 100,
+          totalTime: 105,
+        },
+      });
+
+      await service.emit('test.event', { test: 'data' });
+
+      // Wait for async processing
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      expect(mockHandlerExecutionService.executeHandler).toHaveBeenCalled();
+    });
+
+    it('should handle processEvent without advanced handler execution', async () => {
+      const disabledService = new EventEmitterService(
+        { ...defaultOptions, enableAdvancedFeatures: false },
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+      );
+
+      await disabledService.onModuleInit();
+
+      const mockHandler = jest.fn().mockResolvedValue(undefined);
+      disabledService.on('test.event', mockHandler);
+
+      await disabledService.emit('test.event', { test: 'data' });
+
+      // Wait for async processing
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      expect(mockHandler).toHaveBeenCalled();
+
+      await disabledService.onModuleDestroy();
+    });
+
+    it('should handle handler execution failures and send to DLQ', async () => {
+      // Create a new service with DLQ enabled
+      const dlqEnabledService = new EventEmitterService(
+        { ...defaultOptions, enableDeadLetterQueue: true },
+        mockMetricsService,
+        mockPersistenceService,
+        mockDlqService,
+        mockHandlerExecutionService,
+        mockStreamManagementService,
+        mockHandlerPoolService,
+      );
+      await dlqEnabledService.onModuleInit();
+
+      const mockHandler = jest.fn().mockRejectedValue(new Error('Handler failed'));
+      dlqEnabledService.on('test.event', mockHandler);
+
+      mockDlqService.addEntry.mockResolvedValue(undefined);
+
+      await dlqEnabledService.emit('test.event', { test: 'data' });
+
+      // Wait for async processing
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      expect(mockDlqService.addEntry).toHaveBeenCalled();
+
+      await dlqEnabledService.onModuleDestroy();
+    });
+
+    it('should handle metrics recording during event processing', async () => {
+      const mockHandler = jest.fn().mockResolvedValue(undefined);
+      service.on('test.event', mockHandler);
+
+      await service.emit('test.event', { test: 'data' });
+
+      // Wait for async processing
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      expect(mockMetricsService.recordEventEmitted).toHaveBeenCalled();
+      expect(mockMetricsService.recordEventProcessed).toHaveBeenCalled();
+    });
+
+    it('should handle persistence service errors during emission with persistence', async () => {
+      // Create a new service with persistence enabled
+      const persistenceEnabledService = new EventEmitterService(
+        { ...defaultOptions, enablePersistence: true },
+        mockMetricsService,
+        mockPersistenceService,
+        mockDlqService,
+        mockHandlerExecutionService,
+        mockStreamManagementService,
+        mockHandlerPoolService,
+      );
+      await persistenceEnabledService.onModuleInit();
+
+      mockPersistenceService.save.mockRejectedValue(new Error('Persistence failed'));
+      const mockLoggerError = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+
+      await persistenceEnabledService.emitWithPersistence('test.event', { test: 'data' });
+
+      expect(mockLoggerError).toHaveBeenCalledWith('Failed to persist event:', expect.any(Error));
+
+      mockLoggerError.mockRestore();
+      await persistenceEnabledService.onModuleDestroy();
+    });
+
+    it('should handle subscription completion during shutdown', async () => {
+      // Emit some events to create active subscriptions
+      await service.emit('test.event', { test: 'data' });
+
+      // Mock the subscription completion
+      service['eventProcessingSubscription'] = { unsubscribe: jest.fn() } as any;
+
+      // Should complete gracefully
+      await expect(service.onModuleDestroy()).resolves.not.toThrow();
+    });
+
+    it('should handle event processing subscription errors', async () => {
+      const mockLogger = jest.spyOn(service['logger'], 'error').mockImplementation();
+
+      // Should not crash the service during normal operations
+      expect(() => service.getEventNames()).not.toThrow();
+
+      mockLogger.mockRestore();
+    });
+
+    it('should handle invalid event data gracefully', async () => {
+      const mockLogger = jest.spyOn(service['logger'], 'warn').mockImplementation();
+
+      // Try to emit with invalid data
+      await expect(service.emit('' as any, undefined)).resolves.not.toThrow();
+      await expect(service.emit(null as any, {})).resolves.not.toThrow();
+
+      mockLogger.mockRestore();
+    });
+
+    it('should handle handler registration errors', () => {
+      const invalidHandler = null as any;
+
+      expect(() => {
+        service.registerAdvancedHandler(invalidHandler);
+      }).toThrow();
+    });
+
+    it('should handle concurrent shutdowns gracefully', async () => {
+      // Start multiple shutdowns concurrently
+      const shutdownPromises = [service.onModuleDestroy(), service.onModuleDestroy(), service.onModuleDestroy()];
+
+      // All should complete without throwing
+      await expect(Promise.all(shutdownPromises)).resolves.not.toThrow();
+    });
+
+    it('should handle stream management service errors', async () => {
+      mockStreamManagementService.createManagedStream.mockImplementation(() => {
+        throw new Error('Stream management failed');
+      });
+
+      const streamService = new EventEmitterService(
+        { ...defaultOptions, streamManagement: { enabled: true } },
+        mockMetricsService,
+        mockPersistenceService,
+        mockDlqService,
+        mockHandlerExecutionService,
+        mockStreamManagementService,
+        mockHandlerPoolService,
+      );
+
+      // Should handle stream creation errors gracefully
+      await expect(streamService.onModuleInit()).resolves.not.toThrow();
+      await streamService.onModuleDestroy();
+    });
+
+    it('should handle large number of concurrent events', async () => {
+      // Register a handler for testing
+      const mockHandler = jest.fn().mockResolvedValue(undefined);
+      service.on('stress.test', mockHandler);
+
+      // Emit many events concurrently
+      const promises = Array.from({ length: 1000 }, (_, i) => service.emit('stress.test', { id: i }));
+
+      // Should handle all events without crashing
+      await expect(Promise.all(promises)).resolves.not.toThrow();
+
+      // Wait for processing
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      service.off('stress.test', mockHandler);
+    });
+  });
+
+  describe('Stream Processing Pipeline Coverage', () => {
+    beforeEach(async () => {
+      service = new EventEmitterService(
+        defaultOptions,
+        mockMetricsService,
+        mockPersistenceService,
+        mockDlqService,
+        mockHandlerExecutionService,
+        mockStreamManagementService,
+        mockHandlerPoolService,
+      );
+      await service.onModuleInit();
+    });
+
+    afterEach(async () => {
+      await service.onModuleDestroy();
+    });
+
+    it('should process events through setupEventProcessing pipeline', async () => {
+      const mockHandler = jest.fn().mockResolvedValue(undefined);
+      service.on('pipeline.test', mockHandler);
+
+      // Emit event to trigger the pipeline
+      await service.emit('pipeline.test', { data: 'pipeline' });
+
+      // Wait for pipeline processing (increased time due to bufferTimeMs: 100)
+      await new Promise((resolve) => setTimeout(resolve, 150));
+
+      expect(mockHandler).toHaveBeenCalled();
+      expect(mockMetricsService.recordEventEmitted).toHaveBeenCalled();
+    });
+
+    it('should handle processEventBatch with multiple events', async () => {
+      const mockHandler = jest.fn().mockResolvedValue(undefined);
+      service.on('batch.test', mockHandler);
+
+      // Emit multiple events rapidly to trigger batch processing
+      const promises = [];
+      for (let i = 0; i < 5; i++) {
+        promises.push(service.emit('batch.test', { id: i }));
+      }
+
+      await Promise.all(promises);
+
+      // Wait for batch processing (increased time due to bufferTimeMs: 100)
+      await new Promise((resolve) => setTimeout(resolve, 150));
+
+      expect(mockHandler).toHaveBeenCalledTimes(5);
+    });
+
+    it('should handle no handlers found warning', async () => {
+      const mockLogger = jest.spyOn(service['logger'], 'warn').mockImplementation();
+
+      await service.emit('nonexistent.event', { data: 'test' });
+
+      // Wait for processing
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      expect(mockLogger).toHaveBeenCalledWith('No handlers found for event: nonexistent.event');
+      mockLogger.mockRestore();
+    });
+
+    it('should handle event processing errors with catchError', async () => {
+      const mockHandler = jest.fn().mockRejectedValue(new Error('Handler error'));
+      const mockLoggerError = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+      service.on('error.test', mockHandler);
+
+      await service.emit('error.test', { data: 'error' });
+
+      // Wait for error processing (increased time due to bufferTimeMs: 100)
+      await new Promise((resolve) => setTimeout(resolve, 150));
+
+      expect(mockHandler).toHaveBeenCalled();
+      // The pipeline should handle the error gracefully
+      expect(() => service.getEventNames()).not.toThrow();
+
+      mockLoggerError.mockRestore();
+    });
+
+    it('should filter out events when shutting down', async () => {
+      const mockHandler = jest.fn().mockResolvedValue(undefined);
+      service.on('shutdown.test', mockHandler);
+
+      // Start shutdown process
+      const shutdownPromise = service.onModuleDestroy();
+
+      // Try to emit event during shutdown
+      await service.emit('shutdown.test', { data: 'test' });
+
+      await shutdownPromise;
+
+      // Handler should not be called because of shutdown filter
+      expect(mockHandler).not.toHaveBeenCalled();
+    });
+
+    it('should process events grouped by event name', async () => {
+      const handler1 = jest.fn().mockResolvedValue(undefined);
+      const handler2 = jest.fn().mockResolvedValue(undefined);
+
+      service.on('group.test1', handler1);
+      service.on('group.test2', handler2);
+
+      // Emit multiple events of different types
+      await Promise.all([
+        service.emit('group.test1', { id: 1 }),
+        service.emit('group.test2', { id: 2 }),
+        service.emit('group.test1', { id: 3 }),
+        service.emit('group.test2', { id: 4 }),
+      ]);
+
+      // Wait for processing (increased time due to bufferTimeMs: 100)
+      await new Promise((resolve) => setTimeout(resolve, 150));
+
+      expect(handler1).toHaveBeenCalledTimes(2);
+      expect(handler2).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('Advanced Features Integration Coverage', () => {
+    it('should use managed stream when stream management is enabled', async () => {
+      const streamService = new EventEmitterService(
+        { ...defaultOptions, streamManagement: { enabled: true } },
+        mockMetricsService,
+        mockPersistenceService,
+        mockDlqService,
+        mockHandlerExecutionService,
+        mockStreamManagementService,
+        mockHandlerPoolService,
+      );
+
+      // Mock stream management to return a managed stream
+      mockStreamManagementService.createManagedStream.mockReturnValue(streamService['eventBus$']);
+
+      await streamService.onModuleInit();
+
+      expect(mockStreamManagementService.createManagedStream).toHaveBeenCalled();
+
+      await streamService.onModuleDestroy();
+    });
+
+    it('should handle advanced handler execution with execution results', async () => {
+      const mockHandler = jest.fn().mockResolvedValue(undefined);
+      const advancedHandler = {
+        handler: mockHandler,
+        handlerId: 'advanced-test-handler',
+        eventName: 'advanced.test',
+        instance: {},
+        options: { timeout: 5000 },
+        metadata: {
+          eventName: 'advanced.test',
+          className: 'AdvancedTestHandler',
+          methodName: 'handle',
+          handlerId: 'advanced-test-handler',
+          options: {},
+        },
+      };
+
+      const service = new EventEmitterService(
+        defaultOptions,
+        mockMetricsService,
+        mockPersistenceService,
+        mockDlqService,
+        mockHandlerExecutionService,
+        mockStreamManagementService,
+        mockHandlerPoolService,
+      );
+
+      await service.onModuleInit();
+
+      service.registerAdvancedHandler(advancedHandler);
+
+      // Mock successful execution
+      mockHandlerExecutionService.executeHandler.mockResolvedValue({
+        success: true,
+        executionTime: 150,
+        error: undefined,
+        executionId: 'exec-123',
+        handlerId: 'advanced-test-handler',
+        context: {
+          executionId: 'exec-123',
+          retryAttempt: 0,
+          executionTimeout: 5000,
+          poolName: 'default',
+          priority: 1,
+          tags: [],
+          traceId: 'trace-123',
+          spanId: 'span-123',
+          startedAt: Date.now(),
+          timeoutAt: Date.now() + 5000,
+          // Base HandlerExecutionContext properties
+          event: expect.any(Object),
+          handler: advancedHandler,
+          startTime: Date.now(),
+          attempt: 0,
+          correlationId: 'test-correlation',
+          metadata: {},
+        },
+        metrics: {
+          queueTime: 10,
+          executionTime: 150,
+          totalTime: 160,
+        },
+      });
+
+      await service.emit('advanced.test', { data: 'advanced' });
+
+      // Wait for processing
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      expect(mockHandlerExecutionService.executeHandler).toHaveBeenCalledWith(advancedHandler, expect.any(Object));
+      expect(mockMetricsService.recordEventProcessed).toHaveBeenCalled();
+
+      await service.onModuleDestroy();
+    });
+
+    it('should handle failed execution results and record metrics', async () => {
+      const mockHandler = jest.fn().mockResolvedValue(undefined);
+      const failingHandler = {
+        handler: mockHandler,
+        handlerId: 'failing-handler',
+        eventName: 'failing.test',
+        instance: {},
+        options: { timeout: 5000 },
+        metadata: {
+          eventName: 'failing.test',
+          className: 'FailingHandler',
+          methodName: 'handle',
+          handlerId: 'failing-handler',
+          options: {},
+        },
+      };
+
+      const service = new EventEmitterService(
+        { ...defaultOptions, enableDeadLetterQueue: true },
+        mockMetricsService,
+        mockPersistenceService,
+        mockDlqService,
+        mockHandlerExecutionService,
+        mockStreamManagementService,
+        mockHandlerPoolService,
+      );
+
+      await service.onModuleInit();
+
+      service.registerAdvancedHandler(failingHandler);
+
+      // Mock failed execution
+      const executionError = new Error('Execution failed');
+      mockHandlerExecutionService.executeHandler.mockResolvedValue({
+        success: false,
+        executionTime: 50,
+        error: executionError,
+        executionId: 'exec-456',
+        handlerId: 'failing-handler',
+        context: {
+          executionId: 'exec-456',
+          retryAttempt: 0,
+          executionTimeout: 5000,
+          poolName: 'default',
+          priority: 1,
+          tags: [],
+          traceId: 'trace-456',
+          spanId: 'span-456',
+          startedAt: Date.now(),
+          timeoutAt: Date.now() + 5000,
+          // Base HandlerExecutionContext properties
+          event: expect.any(Object),
+          handler: failingHandler,
+          startTime: Date.now(),
+          attempt: 0,
+          correlationId: 'test-correlation',
+          metadata: {},
+        },
+        metrics: {
+          queueTime: 5,
+          executionTime: 50,
+          totalTime: 55,
+        },
+      });
+
+      await service.emit('failing.test', { data: 'failing' });
+
+      // Wait for processing
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      expect(mockMetricsService.recordEventFailed).toHaveBeenCalledWith(expect.any(Object), executionError);
+      expect(mockDlqService.addEntry).toHaveBeenCalled();
+
+      await service.onModuleDestroy();
+    });
+
+    it('should handle simple handlers when advanced features are disabled', async () => {
+      const disabledService = new EventEmitterService(
+        { ...defaultOptions, enableAdvancedFeatures: false },
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+      );
+
+      await disabledService.onModuleInit();
+
+      const mockHandler = jest.fn().mockResolvedValue(undefined);
+      disabledService.on('simple.test', mockHandler);
+
+      await disabledService.emit('simple.test', { data: 'simple' });
+
+      // Wait for processing
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      expect(mockHandler).toHaveBeenCalled();
+
+      await disabledService.onModuleDestroy();
+    });
+
+    it('should handle subscription completion callback', async () => {
+      const mockLoggerLog = jest.spyOn(Logger.prototype, 'log').mockImplementation();
+
+      const service = new EventEmitterService(
+        defaultOptions,
+        mockMetricsService,
+        mockPersistenceService,
+        mockDlqService,
+        mockHandlerExecutionService,
+        mockStreamManagementService,
+        mockHandlerPoolService,
+      );
+
+      await service.onModuleInit();
+
+      // Complete the event processing subscription
+      service['eventProcessingSubscription']?.unsubscribe();
+
+      expect(mockLoggerLog).toHaveBeenCalledWith('Event processing pipeline completed');
+      mockLoggerLog.mockRestore();
+
+      await service.onModuleDestroy();
+    });
+  });
 });

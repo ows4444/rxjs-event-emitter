@@ -69,10 +69,15 @@ export class EventEmitterService implements OnModuleInit, OnModuleDestroy {
     this.advancedFeaturesEnabled = this.options.enableAdvancedFeatures ?? true;
 
     // Create managed event stream if stream management is available and enabled
-    this.managedEventStream$ =
-      this.streamManagementService && this.advancedFeaturesEnabled && this.isStreamManagementEnabled()
-        ? this.streamManagementService.createManagedStream('event-bus', this.eventBus$, StreamType.EVENT_BUS)
-        : this.eventBus$;
+    try {
+      this.managedEventStream$ =
+        this.streamManagementService && this.advancedFeaturesEnabled && this.isStreamManagementEnabled()
+          ? this.streamManagementService.createManagedStream('event-bus', this.eventBus$, StreamType.EVENT_BUS)
+          : this.eventBus$;
+    } catch (error) {
+      this.logger.error('Failed to create managed stream, falling back to regular stream:', error);
+      this.managedEventStream$ = this.eventBus$;
+    }
   }
 
   async onModuleInit(): Promise<void> {
