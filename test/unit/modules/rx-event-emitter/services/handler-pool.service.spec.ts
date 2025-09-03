@@ -152,7 +152,7 @@ describe('HandlerPoolService', () => {
   describe('Coverage for Specific Uncovered Lines', () => {
     it('should throw error when circuit breaker is OPEN and within timeout window (line 77)', async () => {
       const pool = service.getOrCreatePool('cbOpenPool', { maxConcurrency: 1 });
-      
+
       // Manually set circuit breaker to OPEN with future nextAttemptTime
       (pool as any).circuitBreaker.state = CircuitBreakerState.OPEN;
       (pool as any).circuitBreaker.nextAttemptTime = Date.now() + 10000; // 10 seconds in future
@@ -163,7 +163,7 @@ describe('HandlerPoolService', () => {
 
     it('should trigger execution time array shift when max length exceeded (line 158)', async () => {
       const pool = service.getOrCreatePool('timeTrackPool', { maxConcurrency: 1 });
-      
+
       // Set maxExecutionTimes to 2 to trigger shift
       (pool as any).maxExecutionTimes = 2;
 
@@ -178,7 +178,7 @@ describe('HandlerPoolService', () => {
 
     it('should return unhealthy status when circuit breaker is OPEN (line 212)', () => {
       const pool = service.getOrCreatePool('unhealthyPool', { maxConcurrency: 1 });
-      
+
       // Set circuit breaker to OPEN
       (pool as any).circuitBreaker.state = CircuitBreakerState.OPEN;
 
@@ -188,10 +188,10 @@ describe('HandlerPoolService', () => {
 
     it('should return degraded status when utilization is high (line 216)', async () => {
       const pool = service.getOrCreatePool('degradedPool', { maxConcurrency: 1, queueSize: 1 });
-      
+
       // Create a long-running task to max out utilization
       const longTask = pool.execute(() => new Promise((resolve) => setTimeout(() => resolve('done'), 100)));
-      
+
       // Queue another task to increase queue utilization
       const queuedTask = pool.execute(() => Promise.resolve('queued'));
 
@@ -206,7 +206,7 @@ describe('HandlerPoolService', () => {
 
     it('should cover circuit breaker failure count increment and health status changes (line 298)', async () => {
       const pool = service.getOrCreatePool('failurePool', { maxConcurrency: 1 });
-      
+
       // Execute successful tasks first
       await pool.execute(() => Promise.resolve('success1'));
       await pool.execute(() => Promise.resolve('success2'));
@@ -225,7 +225,7 @@ describe('HandlerPoolService', () => {
 
     it('should cover error paths in pool shutdown and cleanup (lines 337-341)', async () => {
       const pool = service.getOrCreatePool('shutdownPool', { maxConcurrency: 2 });
-      
+
       // Start some tasks
       const task1 = pool.execute(() => new Promise((resolve) => setTimeout(() => resolve('task1'), 50)));
       const task2 = pool.execute(() => Promise.reject(new Error('failing task')));
@@ -233,21 +233,25 @@ describe('HandlerPoolService', () => {
       // Try to shut down the pool while tasks are running
       try {
         await pool.shutdown();
-      } catch (error) {
+      } catch (_error) {
         // Some tasks might fail during shutdown
       }
 
       // Wait for the successful task to complete
-      await task1.catch(() => {});
-      await task2.catch(() => {}); // Catch the expected error
+      await task1.catch(() => {
+        // Ignore errors here
+      });
+      await task2.catch(() => {
+        // Expected to fail
+      }); // Catch the expected error
     });
 
     it('should handle pool metrics when no executions recorded (line 350)', () => {
       const pool = service.getOrCreatePool('emptyMetricsPool', { maxConcurrency: 1 });
-      
+
       // Get metrics without executing any tasks
       const poolMetrics = pool.metrics;
-      
+
       expect(poolMetrics.averageExecutionTime).toBeDefined();
       expect(poolMetrics.activeExecutions).toBeDefined();
       expect(poolMetrics.completedTasks).toBeDefined();
@@ -255,10 +259,12 @@ describe('HandlerPoolService', () => {
 
     it('should handle specific error types and circuit breaker state transitions (lines 457-459)', async () => {
       const pool = service.getOrCreatePool('errorTypePool', { maxConcurrency: 1 });
-      
+
       // Test various error scenarios
       try {
-        await pool.execute(() => { throw new TypeError('Type error'); });
+        await pool.execute(() => {
+          throw new TypeError('Type error');
+        });
       } catch (error) {
         expect(error).toBeInstanceOf(TypeError);
       }

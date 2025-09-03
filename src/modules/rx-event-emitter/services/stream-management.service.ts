@@ -606,7 +606,7 @@ export class StreamManagementService implements OnModuleInit, OnModuleDestroy {
         ...health,
         healthy: false,
         status: 'errored',
-        issues: [...health.issues, `Stream error: ${error}`],
+        issues: [...health.issues, `Stream error: ${String(error)}`],
         recommendations: [...health.recommendations, 'Check error handling and stream source'],
         lastHealthCheck: Date.now(),
       };

@@ -1517,7 +1517,7 @@ describe('StreamManagementService', () => {
 
       const sourceStream = new Subject();
       const streamName = 'cleanup-test';
-      const managedStream = service.createManagedStream(streamName, sourceStream, StreamType.EVENT_BUS);
+      service.createManagedStream(streamName, sourceStream, StreamType.EVENT_BUS);
 
       // Get the stream ID for proper cleanup
       const managedStreams = service.getManagedStreams();
@@ -1559,7 +1559,7 @@ describe('StreamManagementService', () => {
         },
       ];
 
-      configs.forEach((config, index) => {
+      configs.forEach((config) => {
         const testService = new StreamManagementService(config);
         expect(testService).toBeDefined();
       });
@@ -1575,7 +1575,9 @@ describe('StreamManagementService', () => {
       const subscription = managedStream.subscribe({
         next: (value) => expect(value).toBeDefined(),
         error: (error) => expect(error).toBeDefined(),
-        complete: () => {},
+        complete: () => {
+          // Stream completed
+        },
       });
 
       // Emit values to test processing
@@ -1724,7 +1726,7 @@ describe('StreamManagementService', () => {
         ConcurrencyStrategy.EXHAUST, // line 528
       ];
 
-      const processor = (value: any) => of(value).pipe(delay(10));
+      const _processor = (value: any) => of(value).pipe(delay(10));
 
       for (const strategy of strategies) {
         const configWithStrategy = {
@@ -1816,7 +1818,9 @@ describe('StreamManagementService', () => {
 
       const managedStream = retryService.createManagedStream('no-backoff-test', errorSource, StreamType.EVENT_BUS);
       const subscription = managedStream.subscribe({
-        error: () => {}, // Handle expected error
+        error: () => {
+          // Expected to error after retries
+        }, // Handle expected error
       });
 
       // Trigger error to test simple retry (lines 550-557)
@@ -1903,19 +1907,19 @@ describe('StreamManagementService', () => {
 
     it('should cover stream error handling subscription error (line 335)', async () => {
       const errorSource = new Subject<any>();
-      
+
       // Create managed stream that will have subscription error
-      const managedStream = service.createManagedStream('error-sub-stream', errorSource, StreamType.EVENT_BUS);
-      
+      service.createManagedStream('error-sub-stream', errorSource, StreamType.EVENT_BUS);
+
       // Force an error in the subscription to trigger line 335
       const errorSpy = jest.spyOn(console, 'error').mockImplementation();
-      
+
       // Trigger error on the source stream which should propagate to subscription error handler
       errorSource.error(new Error('Subscription error test'));
-      
+
       // Allow error to propagate
-      await new Promise(resolve => setTimeout(resolve, 10));
-      
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
       errorSpy.mockRestore();
     });
 
@@ -1931,7 +1935,7 @@ describe('StreamManagementService', () => {
 
       const testService = new StreamManagementService(customConfig);
       const sourceStream = new Subject<any>();
-      
+
       // Create stream with unknown strategy to hit default case
       const managedStream = testService.createManagedStream('default-strategy-stream', sourceStream, StreamType.EVENT_BUS);
       expect(managedStream).toBeDefined();
@@ -1952,37 +1956,37 @@ describe('StreamManagementService', () => {
 
       const batchService = new StreamManagementService(batchingConfig);
       const sourceStream = new Subject<any>();
-      
+
       const managedStream = batchService.createManagedStream('dynamic-batch-stream', sourceStream, StreamType.EVENT_BUS);
-      
+
       const subscription = managedStream.subscribe();
-      
+
       // Send data to trigger dynamic batching
       sourceStream.next({ data: 1 });
       sourceStream.next({ data: 2 });
-      
+
       subscription.unsubscribe();
     });
 
     it('should cover error callback paths (lines 553-554)', async () => {
       const sourceStream = new Subject<any>();
       const managedStream = service.createManagedStream('error-callback-stream', sourceStream, StreamType.MONITORING_STREAM);
-      
+
       const errorSpy = jest.spyOn(console, 'error').mockImplementation();
-      
+
       // Subscribe and trigger error to hit error callback lines
       const subscription = managedStream.subscribe({
         error: (error) => {
           // This will trigger the error handling paths
           expect(error).toBeDefined();
-        }
+        },
       });
-      
+
       // Emit error to trigger error callback
       sourceStream.error(new Error('Error callback test'));
-      
-      await new Promise(resolve => setTimeout(resolve, 10));
-      
+
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
       subscription.unsubscribe();
       errorSpy.mockRestore();
     });
@@ -2001,13 +2005,13 @@ describe('StreamManagementService', () => {
 
       const retryService = new StreamManagementService(retryConfig);
       const sourceStream = new Subject<any>();
-      
+
       const managedStream = retryService.createManagedStream('retry-stream', sourceStream, StreamType.METRICS_STREAM);
-      
+
       // Subscribe to trigger retry configuration paths
       const subscription = managedStream.subscribe();
       sourceStream.next({ test: 'data' });
-      
+
       subscription.unsubscribe();
     });
 
@@ -2025,13 +2029,13 @@ describe('StreamManagementService', () => {
 
       const circuitService = new StreamManagementService(circuitConfig);
       const sourceStream = new Subject<any>();
-      
+
       const managedStream = circuitService.createManagedStream('circuit-stream', sourceStream, StreamType.EVENT_BUS);
-      
+
       // Subscribe to trigger circuit breaker configuration
       const subscription = managedStream.subscribe();
       sourceStream.next({ test: 'data' });
-      
+
       subscription.unsubscribe();
     });
 
@@ -2047,13 +2051,13 @@ describe('StreamManagementService', () => {
 
       const dlqService = new StreamManagementService(dlqConfig);
       const sourceStream = new Subject<any>();
-      
+
       const managedStream = dlqService.createManagedStream('dlq-stream', sourceStream, StreamType.EVENT_BUS);
-      
+
       // Subscribe to trigger DLQ error handling path
       const subscription = managedStream.subscribe();
       sourceStream.next({ test: 'data' });
-      
+
       subscription.unsubscribe();
     });
 
@@ -2070,32 +2074,32 @@ describe('StreamManagementService', () => {
 
       const mergeService = new StreamManagementService(mergeConfig);
       const sourceStream = new Subject<any>();
-      
+
       const managedStream = mergeService.createManagedStream('merge-stream', sourceStream, StreamType.HANDLER_STREAM);
-      
+
       // Subscribe to trigger merge concurrency paths
       const subscription = managedStream.subscribe();
       sourceStream.next({ test: 'data' });
-      
+
       subscription.unsubscribe();
     });
 
     it('should cover health check update error handling (line 714)', async () => {
       const healthSpy = jest.spyOn(console, 'error').mockImplementation();
-      
+
       // Force an error during health check update
       const originalMethod = (service as any).updateHealthMetrics;
       (service as any).updateHealthMetrics = () => {
         throw new Error('Health update error');
       };
-      
+
       // Trigger health check interval
       const sourceStream = new Subject<any>();
       service.createManagedStream('health-error-stream', sourceStream, StreamType.EVENT_BUS);
-      
+
       // Wait for health check to run and potentially error
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
       // Restore original method
       (service as any).updateHealthMetrics = originalMethod;
       healthSpy.mockRestore();
@@ -2103,14 +2107,14 @@ describe('StreamManagementService', () => {
 
     it('should cover cleanup old streams functionality (lines 778-781)', async () => {
       const sourceStream = new Subject<any>();
-      const managedStream = service.createManagedStream('cleanup-old-stream', sourceStream, StreamType.EVENT_BUS);
-      
+      service.createManagedStream('cleanup-old-stream', sourceStream, StreamType.EVENT_BUS);
+
       // Complete the stream to make it "old"
       sourceStream.complete();
-      
+
       // Wait for cleanup interval to potentially run
-      await new Promise(resolve => setTimeout(resolve, 200));
-      
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
       // Should handle cleanup of old/completed streams
       const metrics = service.getCurrentMetrics();
       expect(metrics).toBeDefined();
@@ -2119,40 +2123,40 @@ describe('StreamManagementService', () => {
     it('should cover stream status update paths (lines 801-804)', () => {
       const sourceStream = new Subject<any>();
       const managedStream = service.createManagedStream('status-update-stream', sourceStream, StreamType.MONITORING_STREAM);
-      
+
       const subscription = managedStream.subscribe();
-      
+
       // Send data to trigger status updates
       sourceStream.next({ data: 'test' });
-      
+
       // Get stream health to trigger status calculation
       const managedStreams = service.getManagedStreams();
-      const testStream = managedStreams.find(s => s.name === 'status-update-stream');
+      const testStream = managedStreams.find((s) => s.name === 'status-update-stream');
       if (testStream) {
         const health = service.getStreamHealth(testStream.id);
         expect(health).toBeDefined();
       }
-      
+
       subscription.unsubscribe();
     });
 
     it('should cover periodic metrics collection (line 809)', async () => {
       const sourceStream = new Subject<any>();
       const managedStream = service.createManagedStream('periodic-metrics-stream', sourceStream, StreamType.EVENT_BUS);
-      
+
       const subscription = managedStream.subscribe();
-      
+
       // Send some data
       sourceStream.next({ data: 1 });
       sourceStream.next({ data: 2 });
-      
+
       // Wait for periodic collection to potentially run
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
       const metrics = service.getCurrentMetrics();
       expect(metrics).toBeDefined();
       expect(metrics.bufferSize).toBeGreaterThanOrEqual(0);
-      
+
       subscription.unsubscribe();
     });
   });

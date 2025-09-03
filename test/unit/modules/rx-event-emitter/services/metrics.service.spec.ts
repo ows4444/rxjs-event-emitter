@@ -1132,16 +1132,16 @@ describe('MetricsService', () => {
       const handlerStats = {
         'test.handler': {
           execution: {
-            totalExecutions: 10
+            totalExecutions: 10,
           },
-          successRate: 95.5
+          successRate: 95.5,
         },
         'another.handler': {
           execution: {
-            totalExecutions: 5
+            totalExecutions: 5,
           },
-          successRate: 80.0
-        }
+          successRate: 80.0,
+        },
       };
 
       // Mock the getCurrentSystemMetrics to return proper handler stats
@@ -1152,7 +1152,7 @@ describe('MetricsService', () => {
         isolation: { interferenceScore: 0.1, faultContainment: 99.9 },
         dlq: { totalEntries: 0, healthStatus: 'healthy' },
         system: { memoryUsage: 50, cpuUsage: 20, uptime: 10000, eventRate: 100, errorRate: 0.1, lastUpdated: Date.now() },
-        health: { status: 'healthy', score: 95, alerts: [] }
+        health: { status: 'healthy', score: 95, alerts: [] },
       } as any);
 
       const logSpy = jest.spyOn(service['logger'], 'log').mockImplementation();
@@ -1179,15 +1179,11 @@ describe('MetricsService', () => {
         isolation: { interferenceScore: 0.3, faultContainment: 95 },
         dlq: { totalEntries: 5, healthStatus: 'degraded' },
         system: { memoryUsage: 85, cpuUsage: 90, uptime: 50000, eventRate: 50, errorRate: 10, lastUpdated: Date.now() },
-        health: { 
-          status: 'unhealthy', 
-          score: 60, 
-          alerts: [
-            'High memory usage detected (85%)',
-            'High CPU usage detected (90%)',
-            'High error rate detected (10%)'
-          ]
-        }
+        health: {
+          status: 'unhealthy',
+          score: 60,
+          alerts: ['High memory usage detected (85%)', 'High CPU usage detected (90%)', 'High error rate detected (10%)'],
+        },
       } as any);
 
       const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation();
@@ -1207,9 +1203,6 @@ describe('MetricsService', () => {
     it('should cover setupMetricsAggregation distinctUntilChanged operator (lines 512-533)', async () => {
       await service.onModuleInit();
 
-      // Access the private method to test distinctUntilChanged behavior
-      const setupMethod = service['setupMetricsAggregation'] as any;
-
       // Mock the observables with correct interface structures
       const mockEventStats: EventStats = {
         totalEmitted: 10,
@@ -1223,9 +1216,9 @@ describe('MetricsService', () => {
         deadLettered: 0,
         processingRate: 100,
         errorRate: 0,
-        retrySuccessRate: 100
+        retrySuccessRate: 100,
       };
-      
+
       const mockStreamMetrics: StreamMetrics = {
         bufferSize: 5,
         maxBufferSize: 100,
@@ -1237,18 +1230,18 @@ describe('MetricsService', () => {
           averageLatency: 10,
           p95Latency: 15,
           p99Latency: 20,
-          maxLatency: 25
+          maxLatency: 25,
         },
         health: {
           healthy: true,
           memoryPressure: 0.3,
           cpuUsage: 25,
-          lastCheckAt: Date.now()
-        }
+          lastCheckAt: Date.now(),
+        },
       };
-      
+
       const mockHandlerStats = {};
-      
+
       const mockIsolationMetrics: HandlerIsolationMetrics = {
         totalPools: 5,
         activePools: 3,
@@ -1256,22 +1249,22 @@ describe('MetricsService', () => {
         totalQueuedTasks: 1,
         totalDroppedTasks: 0,
         averagePoolUtilization: 60,
-        circuitBreakerStates: { 'pool1': 'CLOSED', 'pool2': 'OPEN' },
+        circuitBreakerStates: { pool1: 'CLOSED', pool2: 'OPEN' },
         poolMetrics: new Map(),
         resourceUsage: {
           memoryUsage: 256,
           cpuUsage: 25,
           activeThreads: 4,
           availableResources: { memory: 1024, cpu: 75, threads: 10 },
-          pressure: { memory: 'low', cpu: 'low', threads: 'low' }
+          pressure: { memory: 'low', cpu: 'low', threads: 'low' },
         },
         isolation: {
           interferenceScore: 0.1,
           faultContainment: 99.9,
-          sharingEfficiency: 85
-        }
+          sharingEfficiency: 85,
+        },
       };
-      
+
       const mockDlqMetrics: DLQMetrics = {
         totalEntries: 0,
         successfulReprocessing: 0,
@@ -1282,7 +1275,7 @@ describe('MetricsService', () => {
         permanentFailures: 0,
         healthStatus: 'healthy',
         lastProcessedAt: Date.now(),
-        policyStats: {}
+        policyStats: {},
       };
 
       // Test that metrics aggregation creates proper SystemMetrics object
@@ -1293,7 +1286,7 @@ describe('MetricsService', () => {
       service['dlqMetrics$'].next(mockDlqMetrics);
 
       // Wait for observable to process
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
       const currentMetrics = service.getCurrentSystemMetrics();
       expect(currentMetrics.events).toEqual(mockEventStats);
@@ -1347,12 +1340,12 @@ describe('MetricsService', () => {
       const edgeCaseHandlerStats = {
         'valid.handler': {
           execution: { totalExecutions: 5 },
-          successRate: 100
+          successRate: 100,
         },
         'invalid.handler.1': null,
         'invalid.handler.2': 'not an object',
         'invalid.handler.3': { someOtherField: 'value' },
-        'invalid.handler.4': { execution: 'invalid', successRate: 'invalid' }
+        'invalid.handler.4': { execution: 'invalid', successRate: 'invalid' },
       };
 
       // Mock getCurrentSystemMetrics with edge case data
@@ -1363,7 +1356,7 @@ describe('MetricsService', () => {
         isolation: { interferenceScore: 0.1, faultContainment: 99.9 },
         dlq: { totalEntries: 0, healthStatus: 'healthy' },
         system: { memoryUsage: 50, cpuUsage: 20, uptime: 10000, eventRate: 100, errorRate: 0, lastUpdated: Date.now() },
-        health: { status: 'healthy', score: 95, alerts: [] }
+        health: { status: 'healthy', score: 95, alerts: [] },
       } as any);
 
       const logSpy = jest.spyOn(service['logger'], 'log').mockImplementation();
@@ -1400,9 +1393,9 @@ describe('MetricsService', () => {
       service.logSummary();
 
       // Verify that handler performance was logged
-      const logCalls = logSpy.mock.calls.map(call => call[0]);
-      const hasHandlerPerformance = logCalls.some(call => typeof call === 'string' && call.includes('HANDLER PERFORMANCE'));
-      const hasHandlerStats = logCalls.some(call => typeof call === 'string' && call.includes('test.handler:'));
+      const logCalls = logSpy.mock.calls.map((call) => call[0]);
+      const hasHandlerPerformance = logCalls.some((call) => typeof call === 'string' && call.includes('HANDLER PERFORMANCE'));
+      const hasHandlerStats = logCalls.some((call) => typeof call === 'string' && call.includes('test.handler:'));
 
       expect(hasHandlerPerformance || hasHandlerStats).toBe(true);
 
@@ -1417,8 +1410,8 @@ describe('MetricsService', () => {
         health: {
           status: 'degraded',
           score: 70,
-          alerts: ['High memory usage detected', 'High error rate detected']
-        }
+          alerts: ['High memory usage detected', 'High error rate detected'],
+        },
       } as any);
 
       const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation();
@@ -1427,9 +1420,9 @@ describe('MetricsService', () => {
       service.logSummary();
 
       // Verify that alerts were logged
-      const warnCalls = warnSpy.mock.calls.map(call => call[0]);
-      const hasActiveAlerts = warnCalls.some(call => typeof call === 'string' && call.includes('ACTIVE ALERTS'));
-      const hasAlertMessage = warnCalls.some(call => typeof call === 'string' && call.includes('High memory usage'));
+      const warnCalls = warnSpy.mock.calls.map((call) => call[0]);
+      const hasActiveAlerts = warnCalls.some((call) => typeof call === 'string' && call.includes('ACTIVE ALERTS'));
+      const hasAlertMessage = warnCalls.some((call) => typeof call === 'string' && call.includes('High memory usage'));
 
       expect(hasActiveAlerts || hasAlertMessage).toBe(true);
 
@@ -1440,7 +1433,7 @@ describe('MetricsService', () => {
       // Simply get current system metrics to trigger the metrics aggregation paths
       const metrics1 = service.getCurrentSystemMetrics();
       const metrics2 = service.getCurrentSystemMetrics();
-      
+
       // Both should be defined, covering the metrics aggregation logic
       expect(metrics1).toBeDefined();
       expect(metrics2).toBeDefined();
@@ -1455,19 +1448,19 @@ describe('MetricsService', () => {
         heapTotal: 1024 * 1024 * 500,
         heapUsed: 1024 * 1024 * 450,
         external: 1024 * 1024 * 50,
-        arrayBuffers: 1024 * 1024 * 10
+        arrayBuffers: 1024 * 1024 * 10,
       });
 
       // Get system metrics which should trigger health calculation
       const systemMetrics = service.getCurrentSystemMetrics();
-      
+
       expect(systemMetrics.health).toBeDefined();
       expect(systemMetrics.health.score).toBeDefined();
       expect(systemMetrics.health.status).toBeDefined();
     });
 
     it('should cover DLQ metrics recording lines 671-673', () => {
-      // Record DLQ metrics to trigger the DLQ metrics collection paths  
+      // Record DLQ metrics to trigger the DLQ metrics collection paths
       service.recordDLQMetrics({
         totalEntries: 5,
         successfulReprocessing: 2,
@@ -1478,7 +1471,7 @@ describe('MetricsService', () => {
         permanentFailures: 0,
         healthStatus: 'degraded',
         lastProcessedAt: Date.now(),
-        policyStats: {}
+        policyStats: {},
       });
 
       const systemMetrics = service.getCurrentSystemMetrics();
