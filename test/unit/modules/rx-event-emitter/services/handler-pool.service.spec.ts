@@ -148,4 +148,130 @@ describe('HandlerPoolService', () => {
       expect(['healthy', 'degraded', 'unhealthy']).toContain(health['healthPool']);
     });
   });
+
+  describe('Coverage for Specific Uncovered Lines', () => {
+    it('should throw error when circuit breaker is OPEN and within timeout window (line 77)', async () => {
+      const pool = service.getOrCreatePool('cbOpenPool', { maxConcurrency: 1 });
+      
+      // Manually set circuit breaker to OPEN with future nextAttemptTime
+      (pool as any).circuitBreaker.state = CircuitBreakerState.OPEN;
+      (pool as any).circuitBreaker.nextAttemptTime = Date.now() + 10000; // 10 seconds in future
+
+      // Should throw error because circuit breaker is OPEN and still within timeout
+      await expect(pool.execute(() => Promise.resolve('test'))).rejects.toThrow('Circuit breaker is OPEN for pool cbOpenPool');
+    });
+
+    it('should trigger execution time array shift when max length exceeded (line 158)', async () => {
+      const pool = service.getOrCreatePool('timeTrackPool', { maxConcurrency: 1 });
+      
+      // Set maxExecutionTimes to 2 to trigger shift
+      (pool as any).maxExecutionTimes = 2;
+
+      // Execute multiple tasks to fill up and exceed the execution times array
+      await pool.execute(() => Promise.resolve('task1'));
+      await pool.execute(() => Promise.resolve('task2'));
+      await pool.execute(() => Promise.resolve('task3')); // This should trigger shift
+
+      // Verify executionTimes array has been managed correctly
+      expect((pool as any).executionTimes.length).toBeLessThanOrEqual(2);
+    });
+
+    it('should return unhealthy status when circuit breaker is OPEN (line 212)', () => {
+      const pool = service.getOrCreatePool('unhealthyPool', { maxConcurrency: 1 });
+      
+      // Set circuit breaker to OPEN
+      (pool as any).circuitBreaker.state = CircuitBreakerState.OPEN;
+
+      const health = service.getPoolHealth();
+      expect(health['unhealthyPool']).toBe('unhealthy');
+    });
+
+    it('should return degraded status when utilization is high (line 216)', async () => {
+      const pool = service.getOrCreatePool('degradedPool', { maxConcurrency: 1, queueSize: 1 });
+      
+      // Create a long-running task to max out utilization
+      const longTask = pool.execute(() => new Promise((resolve) => setTimeout(() => resolve('done'), 100)));
+      
+      // Queue another task to increase queue utilization
+      const queuedTask = pool.execute(() => Promise.resolve('queued'));
+
+      // Check health while pool is highly utilized
+      const health = service.getPoolHealth();
+      expect(health['degradedPool']).toBe('degraded');
+
+      // Wait for tasks to complete
+      await longTask;
+      await queuedTask;
+    });
+
+    it('should cover circuit breaker failure count increment and health status changes (line 298)', async () => {
+      const pool = service.getOrCreatePool('failurePool', { maxConcurrency: 1 });
+      
+      // Execute successful tasks first
+      await pool.execute(() => Promise.resolve('success1'));
+      await pool.execute(() => Promise.resolve('success2'));
+
+      // Now execute failing tasks to trigger circuit breaker logic
+      try {
+        await pool.execute(() => Promise.reject(new Error('test failure')));
+      } catch {
+        // Expected to fail
+      }
+
+      // Check that failure was recorded
+      const metrics = pool.metrics;
+      expect(metrics.circuitBreaker.failureCount).toBeGreaterThan(0);
+    });
+
+    it('should cover error paths in pool shutdown and cleanup (lines 337-341)', async () => {
+      const pool = service.getOrCreatePool('shutdownPool', { maxConcurrency: 2 });
+      
+      // Start some tasks
+      const task1 = pool.execute(() => new Promise((resolve) => setTimeout(() => resolve('task1'), 50)));
+      const task2 = pool.execute(() => Promise.reject(new Error('failing task')));
+
+      // Try to shut down the pool while tasks are running
+      try {
+        await pool.shutdown();
+      } catch (error) {
+        // Some tasks might fail during shutdown
+      }
+
+      // Wait for the successful task to complete
+      await task1.catch(() => {});
+      await task2.catch(() => {}); // Catch the expected error
+    });
+
+    it('should handle pool metrics when no executions recorded (line 350)', () => {
+      const pool = service.getOrCreatePool('emptyMetricsPool', { maxConcurrency: 1 });
+      
+      // Get metrics without executing any tasks
+      const poolMetrics = pool.metrics;
+      
+      expect(poolMetrics.averageExecutionTime).toBeDefined();
+      expect(poolMetrics.activeExecutions).toBeDefined();
+      expect(poolMetrics.completedTasks).toBeDefined();
+    });
+
+    it('should handle specific error types and circuit breaker state transitions (lines 457-459)', async () => {
+      const pool = service.getOrCreatePool('errorTypePool', { maxConcurrency: 1 });
+      
+      // Test various error scenarios
+      try {
+        await pool.execute(() => { throw new TypeError('Type error'); });
+      } catch (error) {
+        expect(error).toBeInstanceOf(TypeError);
+      }
+
+      try {
+        await pool.execute(() => Promise.reject(new RangeError('Range error')));
+      } catch (error) {
+        expect(error).toBeInstanceOf(RangeError);
+      }
+
+      // Verify circuit breaker logic still works with different error types
+      const metrics = pool.metrics;
+      expect(metrics.circuitBreaker.failureCount).toBeGreaterThan(0);
+    });
+  });
 });

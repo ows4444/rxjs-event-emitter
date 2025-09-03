@@ -122,4 +122,86 @@ describe('PersistenceService', () => {
       expect(retrieved).toBeUndefined();
     });
   });
+
+  describe('Error Handling Coverage', () => {
+    it('should handle save errors and rethrow them', async () => {
+      // Mock the internal map to throw an error
+      const originalSet = Map.prototype.set;
+      jest.spyOn(Map.prototype, 'set').mockImplementationOnce(() => {
+        throw new Error('Storage error');
+      });
+
+      await expect(service.save(sampleEvent, EventStatus.PENDING)).rejects.toThrow('Storage error');
+
+      // Restore original method
+      Map.prototype.set = originalSet;
+    });
+
+    it('should log warning when updating status for non-existent event', async () => {
+      const loggerSpy = jest.spyOn(service['logger'], 'warn').mockImplementation();
+
+      await service.updateStatus('non-existent-id', EventStatus.FAILED);
+
+      expect(loggerSpy).toHaveBeenCalledWith('Event not found for status update: non-existent-id');
+      loggerSpy.mockRestore();
+    });
+
+    it('should handle DLQ save errors and rethrow them', async () => {
+      // Mock the internal DLQ map to throw an error
+      const originalSet = Map.prototype.set;
+      jest.spyOn(Map.prototype, 'set').mockImplementationOnce(() => {
+        throw new Error('DLQ storage error');
+      });
+
+      const dlqEntry = {
+        event: sampleEvent,
+        error: new Error('Test error'),
+        timestamp: Date.now(),
+        attempts: 1,
+      };
+
+      await expect(service.saveDLQEntry(dlqEntry)).rejects.toThrow('DLQ storage error');
+
+      // Restore original method
+      Map.prototype.set = originalSet;
+    });
+
+    it('should handle DLQ batch save errors and rethrow them', async () => {
+      // Mock the internal Map to throw an error during the batch operation
+      const originalDlqEntries = (service as any).dlqEntries;
+      let callCount = 0;
+
+      const mockMap = {
+        set: jest.fn().mockImplementation((key, value) => {
+          callCount++;
+          if (callCount === 2) {
+            throw new Error('DLQ batch storage error');
+          }
+          return originalDlqEntries.set(key, value);
+        }),
+      };
+
+      (service as any).dlqEntries = mockMap;
+
+      const dlqEntries = [
+        {
+          event: sampleEvent,
+          error: new Error('Test error 1'),
+          timestamp: Date.now(),
+          attempts: 1,
+        },
+        {
+          event: { ...sampleEvent, metadata: { ...sampleEvent.metadata, id: 'event-2' } },
+          error: new Error('Test error 2'),
+          timestamp: Date.now(),
+          attempts: 1,
+        },
+      ];
+
+      await expect(service.saveDLQEntries(dlqEntries)).rejects.toThrow('DLQ batch storage error');
+
+      // Restore the original Map
+      (service as any).dlqEntries = originalDlqEntries;
+    });
+  });
 });

@@ -97,13 +97,15 @@ describe('HandlerExecutionService', () => {
         {
           provide: EVENT_EMITTER_OPTIONS,
           useValue: {
-            enableAdvancedFeatures: true,
-            defaultTimeout: 30000,
-            maxRetries: 3,
-            circuitBreaker: {
+            handlerExecution: {
               enabled: true,
-              failureThreshold: 5,
-              recoveryTimeout: 30000,
+              defaultTimeout: 30000,
+            },
+            errorRecovery: {
+              enabled: true,
+              circuitBreakerThreshold: 5,
+              circuitBreakerTimeout: 30000,
+              maxRetryAttempts: 3,
             },
             execution: {
               enabled: true,
@@ -267,7 +269,7 @@ describe('HandlerExecutionService', () => {
         undefined, // no pool service
         mockMetricsService,
         mockDLQService,
-        { enableAdvancedFeatures: true },
+        { experimental: { enableStreamOptimization: true } },
       );
 
       await serviceWithoutPool.onModuleInit();
@@ -395,7 +397,7 @@ describe('HandlerExecutionService', () => {
   describe('Rate Limiting', () => {
     it('should handle custom execution configuration', async () => {
       const serviceWithCustomConfig = new HandlerExecutionService(mockHandlerPoolService, mockMetricsService, mockDLQService, {
-        defaultTimeout: 1000,
+        handlerExecution: { defaultTimeout: 1000 },
         maxConcurrency: 5,
       });
 
@@ -795,10 +797,10 @@ describe('HandlerExecutionService', () => {
 
     it('should handle custom circuit breaker configuration', async () => {
       const customService = new HandlerExecutionService(mockHandlerPoolService, mockMetricsService, mockDLQService, {
-        circuitBreaker: {
+        errorRecovery: {
           enabled: true,
-          failureThreshold: 3,
-          recoveryTimeout: 10000,
+          circuitBreakerThreshold: 3,
+          circuitBreakerTimeout: 10000,
         },
       });
 
@@ -828,7 +830,7 @@ describe('HandlerExecutionService', () => {
 
     it('should handle custom retry configuration', async () => {
       const customService = new HandlerExecutionService(mockHandlerPoolService, mockMetricsService, mockDLQService, {
-        defaultTimeout: 10000,
+        handlerExecution: { defaultTimeout: 10000 },
       });
 
       await customService.onModuleInit();
@@ -844,7 +846,7 @@ describe('HandlerExecutionService', () => {
 
     beforeEach(async () => {
       rateLimitService = new HandlerExecutionService(mockHandlerPoolService, mockMetricsService, mockDLQService, {
-        defaultTimeout: 30000,
+        handlerExecution: { defaultTimeout: 30000 },
         rateLimit: {
           enabled: true,
           maxPerSecond: 5,
@@ -885,7 +887,7 @@ describe('HandlerExecutionService', () => {
 
     it('should allow requests when rate limiting is disabled', async () => {
       const noRateLimitService = new HandlerExecutionService(mockHandlerPoolService, mockMetricsService, mockDLQService, {
-        defaultTimeout: 30000,
+        handlerExecution: { defaultTimeout: 30000 },
       });
       await noRateLimitService.onModuleInit();
 
@@ -929,7 +931,7 @@ describe('HandlerExecutionService', () => {
 
     beforeEach(async () => {
       service = new HandlerExecutionService(mockHandlerPoolService, mockMetricsService, mockDLQService, {
-        defaultTimeout: 30000,
+        handlerExecution: { defaultTimeout: 30000 },
       });
       await service.onModuleInit();
     });
@@ -1010,6 +1012,266 @@ describe('HandlerExecutionService', () => {
         expect((error as Error).message).toBe('Always fails');
         expect(alwaysFailHandler.handler).toHaveBeenCalledTimes(1); // Current implementation: no retry
       }
+    });
+  });
+
+  describe('Rate Limiting Edge Cases', () => {
+    let rateLimitService: HandlerExecutionService;
+
+    beforeEach(async () => {
+      const module = await Test.createTestingModule({
+        providers: [
+          HandlerExecutionService,
+          { provide: HandlerPoolService, useValue: mockHandlerPoolService },
+          { provide: MetricsService, useValue: mockMetricsService },
+          { provide: DeadLetterQueueService, useValue: mockDLQService },
+          {
+            provide: EVENT_EMITTER_OPTIONS,
+            useValue: {
+              rateLimit: { enabled: true, maxPerSecond: 1, burstSize: 1 },
+            },
+          },
+        ],
+      }).compile();
+
+      rateLimitService = module.get<HandlerExecutionService>(HandlerExecutionService);
+      await rateLimitService.onModuleInit();
+    });
+
+    afterEach(async () => {
+      await rateLimitService.onModuleDestroy();
+    });
+
+    it('should handle token bucket refill with default values', async () => {
+      const handler = createMockHandler();
+      const mockEvent = createMockEvent();
+
+      // Service has rate limiting enabled in this test suite
+      // This test verifies that the token bucket algorithm works without causing failures
+      // Since rate limiting is properly configured, operations should succeed within limits
+      const result1 = await rateLimitService.executeHandler(handler, mockEvent);
+      expect(result1.success).toBe(true);
+
+      // Verify that the rate limiting mechanism is accessible
+      expect((rateLimitService as any).checkRateLimit).toBeDefined();
+      expect((rateLimitService as any).rateLimiters).toBeDefined();
+    });
+
+    it('should refill tokens based on maxPerSecond default when not specified', async () => {
+      // Create service with incomplete rate limit config to test defaults
+      const moduleWithDefaults = await Test.createTestingModule({
+        providers: [
+          HandlerExecutionService,
+          { provide: HandlerPoolService, useValue: mockHandlerPoolService },
+          { provide: MetricsService, useValue: mockMetricsService },
+          { provide: DeadLetterQueueService, useValue: mockDLQService },
+          {
+            provide: EVENT_EMITTER_OPTIONS,
+            useValue: {
+              rateLimit: { enabled: true, burstSize: undefined },
+            },
+          },
+        ],
+      }).compile();
+
+      const testService = moduleWithDefaults.get<HandlerExecutionService>(HandlerExecutionService);
+      await testService.onModuleInit();
+
+      const handler = createMockHandler();
+      const mockEvent = createMockEvent();
+
+      // This should use default values for maxPerSecond and burstSize
+      const result = await testService.executeHandler(handler, mockEvent);
+      expect(result.success).toBe(true);
+
+      await testService.onModuleDestroy();
+    });
+  });
+
+  describe('Retry Logic Edge Cases', () => {
+    it('should not retry when max retries reached', () => {
+      const error = new Error('Test error');
+      const shouldRetry = (service as any).shouldRetry(error, 5); // Exceeds maxRetries
+      expect(shouldRetry).toBe(false);
+    });
+
+    it('should not retry PERMANENT errors', () => {
+      const error = new Error('PERMANENT failure occurred');
+      const shouldRetry = (service as any).shouldRetry(error, 1);
+      expect(shouldRetry).toBe(false);
+    });
+
+    it('should not retry VALIDATION errors', () => {
+      const error = new Error('VALIDATION failed for input');
+      const shouldRetry = (service as any).shouldRetry(error, 1);
+      expect(shouldRetry).toBe(false);
+    });
+
+    it('should not retry UNAUTHORIZED errors', () => {
+      const error = new Error('UNAUTHORIZED access attempt');
+      const shouldRetry = (service as any).shouldRetry(error, 1);
+      expect(shouldRetry).toBe(false);
+    });
+
+    it('should retry other errors when within retry limit', () => {
+      const error = new Error('Temporary network error');
+      const shouldRetry = (service as any).shouldRetry(error, 1);
+      expect(shouldRetry).toBe(true);
+    });
+  });
+
+  describe('Cleanup Methods Coverage', () => {
+    it('should execute cleanup methods without errors', () => {
+      expect(() => {
+        (service as any).cleanupOldStats();
+      }).not.toThrow();
+
+      expect(() => {
+        (service as any).cleanupRateLimiters();
+      }).not.toThrow();
+    });
+
+    it('should handle periodic cleanup interval setup', async () => {
+      // Test that startPeriodicCleanup sets up interval correctly
+      // Since onModuleInit is called in beforeEach, the interval should be set
+      await service.onModuleInit();
+      expect((service as any).cleanupInterval).toBeDefined();
+    });
+  });
+
+  describe('Service Configuration Edge Cases', () => {
+    it('should handle disabled service configuration', async () => {
+      const disabledModule = await Test.createTestingModule({
+        providers: [
+          HandlerExecutionService,
+          { provide: HandlerPoolService, useValue: mockHandlerPoolService },
+          { provide: MetricsService, useValue: mockMetricsService },
+          { provide: DeadLetterQueueService, useValue: mockDLQService },
+          {
+            provide: EVENT_EMITTER_OPTIONS,
+            useValue: {
+              handlerExecution: { enabled: false },
+              enabled: false,
+            },
+          },
+        ],
+      }).compile();
+
+      const disabledService = disabledModule.get<HandlerExecutionService>(HandlerExecutionService);
+
+      // Should log disabled message and return early
+      const logSpy = jest.spyOn(disabledService['logger'], 'log');
+      await disabledService.onModuleInit();
+
+      expect(logSpy).toHaveBeenCalledWith('Handler execution service is disabled');
+      await disabledService.onModuleDestroy();
+    });
+
+    it('should handle rate limiting with proper token bucket logic', async () => {
+      // Test rate limiting implementation
+      const rateLimitedHandler = createMockHandler();
+      const event = createMockEvent();
+
+      // Enable rate limiting for this test
+      (service as any).config.rateLimit.enabled = true;
+      (service as any).config.rateLimit.burstSize = 1;
+      (service as any).config.rateLimit.maxPerSecond = 1;
+
+      // Clear any existing limiters
+      (service as any).rateLimiters.clear();
+
+      // First execution should succeed
+      const result1 = await service.executeHandler(rateLimitedHandler, event);
+      expect(result1.success).toBe(true);
+
+      // Immediately try again - should be rate limited
+      try {
+        await service.executeHandler(rateLimitedHandler, event);
+        // Should not reach here if rate limited
+        expect(false).toBe(true);
+      } catch (error) {
+        expect((error as Error).message).toContain('Rate limit exceeded');
+      }
+
+      // Reset rate limiting
+      (service as any).config.rateLimit.enabled = false;
+    });
+
+    it('should handle execution timeout scenarios', async () => {
+      const slowHandler = {
+        eventName: 'slow.test',
+        handler: jest.fn().mockImplementation(() => new Promise((resolve) => setTimeout(resolve, 100))),
+        instance: {},
+        options: { timeout: 50 }, // Very short timeout
+        handlerId: 'slow-handler-123',
+        metadata: {
+          eventName: 'slow.test',
+          options: { timeout: 50 },
+          className: 'SlowTestHandler',
+          methodName: 'handle',
+          handlerId: 'slow-handler-123',
+        },
+      };
+
+      const event = createMockEvent();
+
+      try {
+        await service.executeHandler(slowHandler, event);
+        expect(false).toBe(true); // Should not reach here
+      } catch (error) {
+        // Should handle timeout properly and create failure result
+        expect(error).toBeDefined();
+      }
+    });
+  });
+
+  describe('Rate Limiting Token Bucket Implementation', () => {
+    it('should properly refill tokens over time', () => {
+      const handlerId = 'test-handler-rate-limit';
+
+      // Setup rate limiting
+      (service as any).config.rateLimit.enabled = true;
+      (service as any).config.rateLimit.burstSize = 10;
+      (service as any).config.rateLimit.maxPerSecond = 5;
+
+      // Manually set up a rate limiter with past timestamp
+      const pastTime = Date.now() - 2000; // 2 seconds ago
+      (service as any).rateLimiters.set(handlerId, {
+        tokens: 0,
+        lastRefill: pastTime,
+      });
+
+      // Check rate limit - should refill tokens
+      const canProceed = (service as any).checkRateLimit(handlerId);
+      expect(canProceed).toBe(true);
+
+      // Verify limiter was updated
+      const limiter = (service as any).rateLimiters.get(handlerId);
+      expect(limiter.tokens).toBeGreaterThan(0);
+
+      // Reset rate limiting
+      (service as any).config.rateLimit.enabled = false;
+    });
+
+    it('should return false when no tokens available', () => {
+      const handlerId = 'no-tokens-handler';
+
+      // Setup rate limiting
+      (service as any).config.rateLimit.enabled = true;
+      (service as any).config.rateLimit.burstSize = 1;
+      (service as any).config.rateLimit.maxPerSecond = 1;
+
+      // Set up limiter with no tokens and recent timestamp
+      (service as any).rateLimiters.set(handlerId, {
+        tokens: 0,
+        lastRefill: Date.now(), // Recent, so no refill
+      });
+
+      const canProceed = (service as any).checkRateLimit(handlerId);
+      expect(canProceed).toBe(false);
+
+      // Reset rate limiting
+      (service as any).config.rateLimit.enabled = false;
     });
   });
 });

@@ -107,6 +107,8 @@ export enum IsolationLevel {
  * Handler execution and isolation configuration
  */
 export interface HandlerExecutionConfig {
+  /** Enable handler execution service */
+  enabled?: boolean;
   /** Default handler timeout in milliseconds */
   defaultTimeout?: number;
   /** Enforce timeouts strictly */

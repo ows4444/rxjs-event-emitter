@@ -16,7 +16,7 @@ import {
   EVENT_EMITTER_OPTIONS,
   RegisteredHandler,
 } from '../interfaces';
-import type { EventEmitterOptions } from './event-emitter.service';
+import type { EventEmitterOptions } from '../interfaces/configuration.interfaces';
 import { HandlerPoolService } from './handler-pool.service';
 import { MetricsService } from './metrics.service';
 import { DeadLetterQueueService } from './dead-letter-queue.service';
@@ -129,14 +129,14 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
     @Optional() @Inject(EVENT_EMITTER_OPTIONS) private readonly options: EventEmitterOptions = {},
   ) {
     this.config = {
-      enabled: true,
-      defaultTimeout: this.options.defaultTimeout ?? 30000,
+      enabled: this.options.handlerExecution?.enabled ?? true,
+      defaultTimeout: this.options.handlerExecution?.defaultTimeout ?? 30000,
       maxRetries: 3,
       retryDelay: 1000,
       circuitBreaker: {
-        enabled: this.options.circuitBreaker?.enabled ?? true,
-        failureThreshold: this.options.circuitBreaker?.failureThreshold ?? 10,
-        recoveryTimeout: this.options.circuitBreaker?.recoveryTimeout ?? 30000,
+        enabled: this.options.errorRecovery?.enabled ?? true,
+        failureThreshold: this.options.errorRecovery?.circuitBreakerThreshold ?? 10,
+        recoveryTimeout: this.options.errorRecovery?.circuitBreakerTimeout ?? 30000,
         minimumThroughput: 5,
       },
       bulkhead: {

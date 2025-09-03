@@ -173,8 +173,12 @@ export class EventEmitterService implements OnModuleInit, OnModuleDestroy {
       try {
         // Use advanced handler execution if available
         if (this.advancedFeaturesEnabled && this.handlerExecutionService) {
-          const _executionResult = await this.handlerExecutionService.executeHandler(handler, event);
-          // Execution completed (result is already handled by the execution service)
+          const executionResult = await this.handlerExecutionService.executeHandler(handler, event);
+
+          // Check if execution was successful
+          if (!executionResult.success && executionResult.error) {
+            throw executionResult.error;
+          }
         } else {
           // Fallback to basic execution with timeout
           await Promise.race([

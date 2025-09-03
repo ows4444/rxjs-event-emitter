@@ -865,4 +865,78 @@ describe('DeadLetterQueueService', () => {
       expect(entries[0].retryPolicy).toBe('nonexistent-policy');
     });
   });
+
+  describe('Retry Policy Coverage', () => {
+    beforeEach(async () => {
+      const mocks = createMockServices();
+      mockEventEmitterService = mocks.eventEmitter;
+      mockPersistenceService = mocks.persistence;
+      mockMetricsService = mocks.metrics;
+
+      const module = await Test.createTestingModule({
+        providers: [
+          DeadLetterQueueService,
+          { provide: EventEmitterService, useValue: mockEventEmitterService },
+          { provide: PersistenceService, useValue: mockPersistenceService },
+          { provide: MetricsService, useValue: mockMetricsService },
+          { provide: EVENT_EMITTER_OPTIONS, useValue: createMockDLQOptions() },
+        ],
+      }).compile();
+
+      service = module.get<DeadLetterQueueService>(DeadLetterQueueService);
+      await service.onModuleInit();
+    });
+
+    afterEach(async () => {
+      await service?.onModuleDestroy();
+    });
+
+    it('should test exponential retry policy conditions', async () => {
+      const mockEvent = createMockEvent();
+
+      // Add entry to trigger retry policy evaluation
+      const transientError = new Error('Transient error');
+      await service.addEntry(mockEvent, transientError, 'exponential');
+
+      // Mock the eventEmitter to fail, which will test retry conditions
+      mockEventEmitterService.emit.mockRejectedValueOnce(transientError);
+
+      // Trigger retry processing which will evaluate the retry policy
+      const result = await service.processNext();
+
+      expect(result).toBeDefined();
+      const entries = await service.getEntries();
+      expect(entries).toHaveLength(1); // Entry should still be there for further retries
+    });
+
+    it('should test immediate retry policy conditions', async () => {
+      const mockEvent = createMockEvent();
+
+      // Test PERMANENT error - should not retry
+      const permanentError = new Error('PERMANENT failure');
+      await service.addEntry(mockEvent, permanentError, 'immediate');
+
+      // Mock the eventEmitter to fail to test retry conditions
+      mockEventEmitterService.emit.mockRejectedValueOnce(permanentError);
+
+      // Trigger retry processing
+      const result = await service.processNext();
+      expect(result).toBeDefined();
+    });
+
+    it('should test aggressive retry policy conditions', async () => {
+      const mockEvent = createMockEvent();
+
+      // Test TRANSIENT error - should retry aggressively
+      const transientError = new Error('TRANSIENT network timeout');
+      await service.addEntry(mockEvent, transientError, 'aggressive');
+
+      // Mock the eventEmitter to fail to test retry conditions
+      mockEventEmitterService.emit.mockRejectedValueOnce(transientError);
+
+      // Trigger retry processing
+      const result = await service.processNext();
+      expect(result).toBeDefined();
+    });
+  });
 });
