@@ -417,31 +417,6 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  private createErrorResult(
-    error: Error,
-    executionId: string,
-    handlerId: string,
-    context: EnhancedExecutionContext,
-    startTime: number,
-  ): DetailedExecutionResult {
-    const totalTime = Date.now() - startTime;
-
-    return {
-      success: false,
-      executionTime: totalTime,
-      error,
-      needsRetry: this.shouldRetry(error, context.retryAttempt),
-      executionId,
-      handlerId,
-      context,
-      metrics: {
-        queueTime: context.startedAt - startTime,
-        executionTime: totalTime,
-        totalTime,
-      },
-    };
-  }
-
   private handleExecutionSuccess(handlerId: string, result: DetailedExecutionResult): void {
     this.updateExecutionStats(handlerId, true, result.executionTime || 0);
     this.updateCircuitBreaker(handlerId, true);

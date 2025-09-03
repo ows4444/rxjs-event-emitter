@@ -142,4 +142,78 @@ describe('InMemoryPersistenceAdapter', () => {
   it('InMemoryAdapter should alias InMemoryPersistenceAdapter', () => {
     expect(InMemoryAdapter).toBe(InMemoryPersistenceAdapter);
   });
+
+  it('should handle stats calculation with empty events', () => {
+    const stats = adapter.getStats();
+
+    expect(stats.totalEvents).toBe(0);
+    expect(stats.processedEvents).toBe(0);
+    expect(stats.failedEvents).toBe(0);
+    expect(stats.unprocessedEvents).toBe(0);
+    expect(stats.oldestEvent).toBeUndefined();
+    expect(stats.newestEvent).toBeUndefined();
+    expect(stats.avgEventSize).toBe(0);
+  });
+
+  it('should handle stats calculation with events having no timestamps', () => {
+    const eventWithoutTimestamp = {
+      metadata: { id: 'no-timestamp', name: 'test.no.timestamp' },
+      payload: { test: 'data' },
+    };
+
+    adapter.save(eventWithoutTimestamp as any);
+    const stats = adapter.getStats();
+
+    expect(stats.totalEvents).toBe(1);
+    expect(stats.oldestEvent).toBeUndefined();
+    expect(stats.newestEvent).toBeUndefined();
+  });
+
+  it('should handle health check with high event count warning', () => {
+    // Add more than 10000 events to trigger performance warning
+    for (let i = 0; i < 10001; i++) {
+      adapter.save({
+        metadata: { id: `event-${i}`, name: 'test.event', timestamp: Date.now() },
+        payload: { index: i },
+      });
+    }
+
+    const result = adapter.healthCheck();
+
+    expect(result.healthy).toBe(true);
+    expect(result.checks.performance).toBe(false);
+    expect(result.issues).toContain('High event count in memory - consider using persistent storage');
+  });
+
+  it('should handle stats calculation with mixed processed/failed events', () => {
+    const event1 = {
+      metadata: { id: 'event-1', name: 'test.1', timestamp: 1000 },
+      payload: { data: '1' },
+    };
+    const event2 = {
+      metadata: { id: 'event-2', name: 'test.2', timestamp: 2000 },
+      payload: { data: '2' },
+    };
+    const event3 = {
+      metadata: { id: 'event-3', name: 'test.3', timestamp: 3000 },
+      payload: { data: '3' },
+    };
+
+    adapter.save(event1);
+    adapter.save(event2);
+    adapter.save(event3);
+
+    adapter.markProcessed('event-1');
+    adapter.markFailed('event-2', new Error('test error'));
+
+    const stats = adapter.getStats();
+
+    expect(stats.totalEvents).toBe(3);
+    expect(stats.processedEvents).toBe(1);
+    expect(stats.failedEvents).toBe(1);
+    expect(stats.unprocessedEvents).toBe(2);
+    expect(stats.oldestEvent).toEqual(new Date(1000));
+    expect(stats.newestEvent).toEqual(new Date(3000));
+    expect(stats.avgEventSize).toBeGreaterThan(0);
+  });
 });

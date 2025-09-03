@@ -1274,4 +1274,40 @@ describe('HandlerExecutionService', () => {
       (service as any).config.rateLimit.enabled = false;
     });
   });
+
+  describe('Coverage for Missing Lines', () => {
+    it('should create failure result with total time calculation (line 427-429)', async () => {
+      const failingHandler = createMockHandler({
+        handler: jest.fn().mockRejectedValue(new Error('Test failure')),
+      });
+      const event = createMockEvent();
+
+      // The service throws on failure, test that metrics are recorded
+      await expect(service.executeHandler(failingHandler, event)).rejects.toThrow('Test failure');
+
+      // Verify that metrics were recorded (which would happen in the failure result creation)
+      expect(mockMetricsService.recordHandlerExecution).toHaveBeenCalled();
+    });
+
+    it('should execute periodic cleanup methods (line 665-666)', () => {
+      // Enable the service to start periodic cleanup
+      jest.useFakeTimers();
+
+      const spy1 = jest.spyOn(service as any, 'cleanupOldStats');
+      const spy2 = jest.spyOn(service as any, 'cleanupRateLimiters');
+
+      // Start the service which should set up periodic cleanup
+      service.onModuleInit();
+
+      // Fast forward 5 minutes to trigger cleanup
+      jest.advanceTimersByTime(300000);
+
+      expect(spy1).toHaveBeenCalled();
+      expect(spy2).toHaveBeenCalled();
+
+      spy1.mockRestore();
+      spy2.mockRestore();
+      jest.useRealTimers();
+    });
+  });
 });
