@@ -1243,16 +1243,34 @@ describe('EventEmitterService', () => {
       expect(typeof result).toBe('boolean');
     });
 
-    it('should handle event processing subscription errors', () => {
+    it('should handle event processing subscription errors to cover line 152', async () => {
       const errorSpy = jest.spyOn(service['logger'], 'error').mockImplementation();
+      
+      // Force an error by making the eventBus$ Subject throw an error
+      const originalNext = service['eventBus$'].next;
+      let errorThrown = false;
+      
+      service['eventBus$'].next = jest.fn().mockImplementation(() => {
+        if (!errorThrown) {
+          errorThrown = true;
+          throw new Error('EventBus synchronous error');
+        }
+        return originalNext.call(service['eventBus$'], arguments[0]);
+      });
 
-      // Trigger subscription error by calling the error callback directly
-      if (service['eventProcessingSubscription']) {
-        const subscription = service['eventProcessingSubscription'];
-        // Simulate subscription error
-        (subscription as any)._error(new Error('Subscription error'));
+      try {
+        await service.emit('test.error', { data: 'test' });
+        // Wait a bit for the error to propagate
+        await new Promise(resolve => setTimeout(resolve, 100));
+      } catch (error) {
+        // Expected error from eventBus
       }
 
+      // Check that the subscription error handler was called
+      expect(errorSpy).toHaveBeenCalledWith('Event processing pipeline error:', expect.any(Error));
+      
+      // Restore
+      service['eventBus$'].next = originalNext;
       errorSpy.mockRestore();
     });
 
