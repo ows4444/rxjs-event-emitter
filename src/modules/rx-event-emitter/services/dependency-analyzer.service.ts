@@ -384,11 +384,18 @@ export class DependencyAnalyzerService implements OnModuleInit {
       if (recursionStack.has(handler)) {
         const cycleStart = path.indexOf(handler);
         const cycle = path.slice(cycleStart).concat(handler);
+        const alternatives = this.suggestResolution(cycle);
         circular.push({
           cycle,
           eventNames: cycle, // Handler IDs can serve as event names for now
           severity: this.config.strictMode ? 'error' : 'warning',
           autoFixable: false,
+          suggestedFix: {
+            removeEdges: [],
+            reasoning: 'Circular dependency detected - manual intervention required',
+            confidence: 'medium' as const,
+            alternatives,
+          },
           metadata: {
             length: cycle.length,
             detectionMethod: 'depth-first-search',

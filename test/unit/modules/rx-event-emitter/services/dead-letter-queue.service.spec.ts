@@ -1204,4 +1204,85 @@ describe('DeadLetterQueueService', () => {
       expect(typeof result).toBe('boolean');
     });
   });
+
+  describe('Coverage for Specific Uncovered Lines', () => {
+    it('should cover error handling in addNewEntry (line 193)', async () => {
+      // Mock persistence service that throws error
+      const mockPersistenceService = {
+        saveDLQEntry: jest.fn().mockRejectedValue(new Error('Persistence error')),
+      };
+
+      const config = {
+        deadLetterQueue: {
+          enabled: true,
+          maxEntries: 100,
+        },
+      };
+
+      const errorLoggingService = new DeadLetterQueueService(config, mockPersistenceService as any);
+      
+      const logSpy = jest.spyOn((errorLoggingService as any).logger, 'error').mockImplementation();
+      
+      const mockEvent = {
+        metadata: { id: 'error-test', name: 'test.error', timestamp: Date.now() },
+        payload: { data: 'error test' },
+      };
+
+      // This should trigger the error handling in addNewEntry
+      await errorLoggingService.addEntry(mockEvent, new Error('Test error'), 'default');
+
+      // Should have logged the error from processing new entry
+      expect(logSpy).toHaveBeenCalledWith('Failed to process new DLQ entry:', expect.any(Error));
+
+      logSpy.mockRestore();
+    });
+
+    it('should cover persistence error handling (line 381)', async () => {
+      // Mock persistence service that throws error during saveDLQEntry
+      const mockPersistenceService = {
+        saveDLQEntry: jest.fn().mockRejectedValue(new Error('Save failed')),
+      };
+
+      const config = {
+        deadLetterQueue: {
+          enabled: true,
+          maxEntries: 100,
+          persistenceRetries: 1,
+        },
+      };
+
+      const persistenceErrorService = new DeadLetterQueueService(config, mockPersistenceService as any);
+      
+      const logSpy = jest.spyOn((persistenceErrorService as any).logger, 'error').mockImplementation();
+      
+      const mockEvent = {
+        metadata: { id: 'persist-error', name: 'test.persist', timestamp: Date.now() },
+        payload: { data: 'persistence test' },
+      };
+
+      // This should trigger the persistence error handling
+      await persistenceErrorService.addEntry(mockEvent, new Error('Test error'), 'default');
+
+      // Should have logged the persistence error
+      expect(logSpy).toHaveBeenCalledWith('Failed to persist DLQ entry:', 'Save failed');
+
+      logSpy.mockRestore();
+    });
+
+    it('should handle persistence service not available scenario', async () => {
+      // Test with no persistence service
+      const noPersistenceService = new DeadLetterQueueService(
+        { deadLetterQueue: { enabled: true } },
+        undefined as any
+      );
+
+      const mockEvent = {
+        metadata: { id: 'no-persist', name: 'test.nopersist', timestamp: Date.now() },
+        payload: { data: 'no persistence' },
+      };
+
+      // This should handle the case where persistence service is not available
+      await expect(noPersistenceService.addEntry(mockEvent, new Error('Test'), 'default')).resolves.not.toThrow();
+    });
+  });
 });

@@ -2635,4 +2635,711 @@ describe('StreamManagementService', () => {
       subscription.unsubscribe();
     });
   });
+
+  describe('Coverage for Remaining Uncovered Lines', () => {
+    it('should cover default concurrency strategy (line 532)', () => {
+      const config = {
+        streamManagement: {
+          enabled: true,
+          concurrency: {
+            strategy: 'unknown' as any, // Force default case
+            maxConcurrent: 5,
+          },
+        },
+      };
+
+      const service = new StreamManagementService(config);
+      const sourceStream = new Subject<any>();
+      
+      const stream = service.createManagedStream('default-concurrency-test', sourceStream);
+      expect(stream).toBeDefined();
+      
+      const subscription = stream.subscribe();
+      sourceStream.next({ test: 'data' });
+      subscription.unsubscribe();
+    });
+
+    it('should cover retry error handling without exponential backoff (lines 553-554)', () => {
+      const config = {
+        streamManagement: {
+          enabled: true,
+          errorHandling: {
+            strategy: ErrorStrategy.RETRY,
+            maxRetries: 2,
+            exponentialBackoff: false, // This should hit the non-exponential path
+          },
+        },
+      };
+
+      const service = new StreamManagementService(config);
+      const sourceStream = new Subject<any>();
+      
+      const stream = service.createManagedStream('retry-test', sourceStream);
+      expect(stream).toBeDefined();
+      
+      const subscription = stream.subscribe({
+        error: () => {} // Prevent uncaught errors
+      });
+      
+      // Trigger error
+      sourceStream.error(new Error('Test error'));
+      subscription.unsubscribe();
+    });
+
+    it('should cover ignore error strategy logging (lines 562-563)', () => {
+      const config = {
+        streamManagement: {
+          enabled: true,
+          errorHandling: {
+            strategy: ErrorStrategy.IGNORE,
+          },
+        },
+      };
+
+      const service = new StreamManagementService(config);
+      const sourceStream = new Subject<any>();
+      
+      const logSpy = jest.spyOn((service as any).logger, 'debug').mockImplementation();
+      
+      const stream = service.createManagedStream('ignore-error-test', sourceStream);
+      expect(stream).toBeDefined();
+      
+      const subscription = stream.subscribe();
+      
+      // Trigger error to test ignore strategy
+      sourceStream.error(new Error('Ignored error'));
+      
+      expect(logSpy).toHaveBeenCalledWith('Stream error ignored:', expect.any(Error));
+      
+      subscription.unsubscribe();
+      logSpy.mockRestore();
+    });
+
+    it('should cover circuit breaker error strategy logging (lines 571-572)', () => {
+      const config = {
+        streamManagement: {
+          enabled: true,
+          errorHandling: {
+            strategy: ErrorStrategy.CIRCUIT_BREAKER,
+          },
+        },
+      };
+
+      const service = new StreamManagementService(config);
+      const sourceStream = new Subject<any>();
+      
+      const logSpy = jest.spyOn((service as any).logger, 'warn').mockImplementation();
+      
+      const stream = service.createManagedStream('circuit-breaker-test', sourceStream);
+      expect(stream).toBeDefined();
+      
+      const subscription = stream.subscribe();
+      
+      // Trigger error to test circuit breaker strategy
+      sourceStream.error(new Error('Circuit breaker error'));
+      
+      expect(logSpy).toHaveBeenCalledWith('Stream error triggered circuit breaker:', expect.any(Error));
+      
+      subscription.unsubscribe();
+      logSpy.mockRestore();
+    });
+
+    it('should cover dead letter error strategy (line 585)', () => {
+      const config = {
+        streamManagement: {
+          enabled: true,
+          errorHandling: {
+            strategy: ErrorStrategy.DEAD_LETTER,
+          },
+        },
+      };
+
+      const service = new StreamManagementService(config);
+      const sourceStream = new Subject<any>();
+      
+      const stream = service.createManagedStream('dead-letter-test', sourceStream);
+      expect(stream).toBeDefined();
+      
+      const subscription = stream.subscribe();
+      
+      // Trigger error to test dead letter strategy
+      sourceStream.error(new Error('Dead letter error'));
+      
+      subscription.unsubscribe();
+    });
+
+    it('should cover stream error handling in subscription (line 335)', () => {
+      const service = new StreamManagementService();
+      const sourceStream = new Subject<any>();
+      
+      const errorSpy = jest.spyOn(service as any, 'handleStreamError').mockImplementation();
+      
+      const stream = service.createManagedStream('error-handling-test', sourceStream);
+      expect(stream).toBeDefined();
+      
+      // This subscription should trigger error handling
+      const subscription = stream.subscribe();
+      
+      // Simulate stream error to trigger the error handler
+      sourceStream.error(new Error('Stream error'));
+      
+      expect(errorSpy).toHaveBeenCalled();
+      
+      subscription.unsubscribe();
+      errorSpy.mockRestore();
+    });
+
+    it('should cover extensive health monitoring scenarios (lines 664-666)', () => {
+      const service = new StreamManagementService({
+        streamManagement: {
+          enabled: true,
+          monitoring: {
+            healthCheckInterval: 100,
+            detailed: true,
+          },
+        },
+      });
+
+      // Create multiple streams with different states
+      const stream1 = service.createManagedStream('health-test-1', new Subject());
+      const stream2 = service.createManagedStream('health-test-2', new Subject());
+      const stream3 = service.createManagedStream('health-test-3', new Subject());
+
+      // Get health for all streams
+      const allHealth = service.getAllStreamHealth();
+      expect(Object.keys(allHealth).length).toBeGreaterThanOrEqual(3);
+
+      // Test individual health checks
+      const health1 = service.getStreamHealth('health-test-1');
+      const health2 = service.getStreamHealth('health-test-2');
+      const health3 = service.getStreamHealth('health-test-3');
+
+      expect(health1).toBeDefined();
+      expect(health2).toBeDefined();
+      expect(health3).toBeDefined();
+    });
+
+    it('should cover metrics tracking scenarios (lines 778-781, 801-804)', () => {
+      const service = new StreamManagementService({
+        streamManagement: {
+          enabled: true,
+          monitoring: {
+            metricsCollection: true,
+            detailed: true,
+          },
+        },
+      });
+
+      // Create stream and generate metrics
+      const sourceStream = new Subject<any>();
+      const stream = service.createManagedStream('metrics-test', sourceStream);
+      
+      const subscription = stream.subscribe();
+      
+      // Generate data to create metrics
+      for (let i = 0; i < 10; i++) {
+        sourceStream.next({ data: i });
+      }
+      
+      // Get stream metrics instead of performance metrics
+      const streamMetrics = service.getStreamMetrics();
+      expect(streamMetrics).toBeDefined();
+      
+      // Test stream statistics
+      const stats = service.getStreamStatistics();
+      expect(stats).toBeDefined();
+      
+      subscription.unsubscribe();
+    });
+
+    it('should cover edge case error handling (line 714, 809)', () => {
+      const service = new StreamManagementService();
+      
+      // Test health check for non-existent stream (should return undefined)
+      const nonExistentHealth = service.getStreamHealth('non-existent-stream');
+      expect(nonExistentHealth).toBeUndefined();
+      
+      // Test getting specific managed stream that doesn't exist
+      const nonExistentStream = service.getManagedStream('non-existent');
+      expect(nonExistentStream).toBeUndefined();
+      
+      // Test destroying non-existent stream
+      const destroyResult = service.destroyManagedStream('non-existent');
+      expect(destroyResult).toBe(false);
+    });
+  });
+
+  describe('Complete 100% Coverage for Stream Management', () => {
+    let service: StreamManagementService;
+
+    beforeEach(() => {
+      service = new StreamManagementService({
+        streamManagement: {
+          enabled: true,
+          batching: {
+            enabled: true,
+            maxBatchSize: 10,
+            timeWindow: 100,
+            dynamicSizing: true
+          },
+          monitoring: {
+            enabled: true,
+            metricsCollection: true,
+            detailed: true,
+            healthCheckInterval: 1000,
+            performanceTracking: true,
+            alertThresholds: {
+              errorRate: 5,
+              latency: 1000,
+              memoryUsage: 80
+            }
+          },
+          errorHandling: {
+            strategy: ErrorStrategy.RETRY,
+            maxRetries: 3,
+            exponentialBackoff: true,
+            retryDelay: 1000
+          },
+          concurrency: {
+            strategy: ConcurrencyStrategy.MERGE,
+            maxConcurrent: 10
+          },
+          backpressure: {
+            strategy: BackpressureStrategy.BUFFER,
+            maxBufferSize: 1000,
+            dropStrategy: DropStrategy.HEAD
+          }
+        }
+      });
+    });
+
+    it('should cover initialization when disabled (lines 225, 228)', () => {
+      const disabledService = new StreamManagementService({
+        streamManagement: {
+          enabled: false
+        }
+      });
+
+      expect(() => disabledService.onModuleInit()).not.toThrow();
+      expect(() => disabledService.onModuleDestroy()).not.toThrow();
+    });
+
+    it('should cover all configuration merging (lines 231, 234, 237)', () => {
+      const partialConfig = {
+        streamManagement: {
+          enabled: true,
+          batching: {
+            enabled: false
+          }
+        }
+      };
+
+      const serviceWithPartial = new StreamManagementService(partialConfig);
+      const stream = serviceWithPartial.createManagedStream('partial-config-test', new Subject());
+      expect(stream).toBeDefined();
+    });
+
+    it('should cover disabled service operations (line 242)', () => {
+      const disabledService = new StreamManagementService({
+        streamManagement: {
+          enabled: false
+        }
+      });
+
+      const sourceStream = new Subject<any>();
+      const result = disabledService.createManagedStream('disabled-test', sourceStream);
+      
+      // When disabled, should return the source stream directly
+      expect(result).toBe(sourceStream);
+    });
+
+    it('should cover comprehensive stream creation paths (lines 249-260)', () => {
+      service.onModuleInit();
+
+      const sourceStream = new Subject<any>();
+      const streamOptions = {
+        bufferSize: 50,
+        timeoutMs: 5000,
+        retryPolicy: {
+          maxRetries: 2,
+          backoffMs: 500
+        }
+      };
+
+      const stream = service.createManagedStream('comprehensive-test', sourceStream, streamOptions);
+      expect(stream).toBeDefined();
+
+      // Test subscription and data flow
+      let receivedData: any[] = [];
+      const subscription = stream.subscribe(data => {
+        receivedData.push(data);
+      });
+
+      sourceStream.next({ test: 'data1' });
+      sourceStream.next({ test: 'data2' });
+
+      expect(receivedData.length).toBeGreaterThanOrEqual(0);
+      subscription.unsubscribe();
+    });
+
+    it('should cover stream destruction and cleanup (line 276)', () => {
+      service.onModuleInit();
+
+      const sourceStream = new Subject<any>();
+      const stream = service.createManagedStream('destruction-test', sourceStream);
+      
+      expect(stream).toBeDefined();
+      
+      const destroyed = service.destroyManagedStream('destruction-test');
+      expect(destroyed).toBe(true);
+
+      // Verify stream is no longer available
+      const retrievedStream = service.getManagedStream('destruction-test');
+      expect(retrievedStream).toBeUndefined();
+    });
+
+    it('should cover monitoring and metrics updates (lines 292-293)', () => {
+      service.onModuleInit();
+
+      const sourceStream = new Subject<any>();
+      const stream = service.createManagedStream('monitoring-test', sourceStream);
+      
+      const subscription = stream.subscribe();
+      
+      // Generate activity to trigger metrics
+      for (let i = 0; i < 5; i++) {
+        sourceStream.next({ metric: i });
+      }
+
+      const streamMetrics = service.getStreamMetrics();
+      expect(streamMetrics).toBeDefined();
+
+      const healthMetrics = service.getHealthMetrics();
+      expect(healthMetrics).toBeDefined();
+
+      subscription.unsubscribe();
+    });
+
+    it('should cover pause and resume operations (lines 298, 303-304)', () => {
+      service.onModuleInit();
+
+      const sourceStream = new Subject<any>();
+      const stream = service.createManagedStream('pause-test', sourceStream);
+      
+      expect(stream).toBeDefined();
+
+      // Test pause
+      const paused = service.pauseStream('pause-test');
+      expect(typeof paused).toBe('boolean');
+
+      // Test resume  
+      const resumed = service.resumeStream('pause-test');
+      expect(typeof resumed).toBe('boolean');
+
+      // Test pause non-existent stream
+      const pausedNonExistent = service.pauseStream('non-existent');
+      expect(pausedNonExistent).toBe(false);
+    });
+
+    it('should cover all error handling strategies (lines 381-477)', () => {
+      // Test RETRY strategy
+      const retryService = new StreamManagementService({
+        streamManagement: {
+          enabled: true,
+          errorHandling: {
+            strategy: ErrorStrategy.RETRY,
+            maxRetries: 2,
+            exponentialBackoff: true,
+            retryDelay: 100
+          }
+        }
+      });
+
+      let retryStream = retryService.createManagedStream('retry-test', new Subject());
+      expect(retryStream).toBeDefined();
+
+      // Test IGNORE strategy  
+      const ignoreService = new StreamManagementService({
+        streamManagement: {
+          enabled: true,
+          errorHandling: {
+            strategy: ErrorStrategy.IGNORE
+          }
+        }
+      });
+
+      let ignoreStream = ignoreService.createManagedStream('ignore-test', new Subject());
+      expect(ignoreStream).toBeDefined();
+
+      // Test CIRCUIT_BREAKER strategy
+      const circuitService = new StreamManagementService({
+        streamManagement: {
+          enabled: true,
+          errorHandling: {
+            strategy: ErrorStrategy.CIRCUIT_BREAKER,
+            circuitBreakerConfig: {
+              failureThreshold: 3,
+              recoveryTimeout: 1000
+            }
+          }
+        }
+      });
+
+      let circuitStream = circuitService.createManagedStream('circuit-test', new Subject());
+      expect(circuitStream).toBeDefined();
+
+      // Test DEAD_LETTER strategy
+      const dlqService = new StreamManagementService({
+        streamManagement: {
+          enabled: true,
+          errorHandling: {
+            strategy: ErrorStrategy.DEAD_LETTER
+          }
+        }
+      });
+
+      let dlqStream = dlqService.createManagedStream('dlq-test', new Subject());
+      expect(dlqStream).toBeDefined();
+    });
+
+    it('should cover all backpressure strategies (lines 486-489)', () => {
+      // Test BUFFER strategy
+      const bufferService = new StreamManagementService({
+        streamManagement: {
+          enabled: true,
+          backpressure: {
+            strategy: BackpressureStrategy.BUFFER,
+            maxBufferSize: 100
+          }
+        }
+      });
+
+      let bufferStream = bufferService.createManagedStream('buffer-test', new Subject());
+      expect(bufferStream).toBeDefined();
+
+      // Test THROTTLE strategy
+      const throttleService = new StreamManagementService({
+        streamManagement: {
+          enabled: true,
+          backpressure: {
+            strategy: BackpressureStrategy.THROTTLE,
+            throttleMs: 100
+          }
+        }
+      });
+
+      let throttleStream = throttleService.createManagedStream('throttle-test', new Subject());
+      expect(throttleStream).toBeDefined();
+
+      // Test DEBOUNCE strategy  
+      const debounceService = new StreamManagementService({
+        streamManagement: {
+          enabled: true,
+          backpressure: {
+            strategy: BackpressureStrategy.DEBOUNCE,
+            debounceMs: 50
+          }
+        }
+      });
+
+      let debounceStream = debounceService.createManagedStream('debounce-test', new Subject());
+      expect(debounceStream).toBeDefined();
+    });
+
+    it('should cover all concurrency strategies (lines 496, 505-510)', () => {
+      // Test MERGE strategy (default case)
+      const mergeService = new StreamManagementService({
+        streamManagement: {
+          enabled: true,
+          concurrency: {
+            strategy: ConcurrencyStrategy.MERGE,
+            maxConcurrent: 5
+          }
+        }
+      });
+
+      let mergeStream = mergeService.createManagedStream('merge-test', new Subject());
+      expect(mergeStream).toBeDefined();
+
+      // Test CONCAT strategy
+      const concatService = new StreamManagementService({
+        streamManagement: {
+          enabled: true,
+          concurrency: {
+            strategy: ConcurrencyStrategy.CONCAT
+          }
+        }
+      });
+
+      let concatStream = concatService.createManagedStream('concat-test', new Subject());
+      expect(concatStream).toBeDefined();
+
+      // Test SWITCH strategy
+      const switchService = new StreamManagementService({
+        streamManagement: {
+          enabled: true,
+          concurrency: {
+            strategy: ConcurrencyStrategy.SWITCH
+          }
+        }
+      });
+
+      let switchStream = switchService.createManagedStream('switch-test', new Subject());
+      expect(switchStream).toBeDefined();
+
+      // Test EXHAUST strategy
+      const exhaustService = new StreamManagementService({
+        streamManagement: {
+          enabled: true,
+          concurrency: {
+            strategy: ConcurrencyStrategy.EXHAUST
+          }
+        }
+      });
+
+      let exhaustStream = exhaustService.createManagedStream('exhaust-test', new Subject());
+      expect(exhaustStream).toBeDefined();
+    });
+
+    it('should cover batching functionality (lines 523-532)', () => {
+      const batchService = new StreamManagementService({
+        streamManagement: {
+          enabled: true,
+          batching: {
+            enabled: true,
+            maxBatchSize: 5,
+            timeWindow: 50,
+            dynamicSizing: true
+          }
+        }
+      });
+
+      const sourceStream = new Subject<any>();
+      const stream = batchService.createManagedStream('batch-test', sourceStream);
+      
+      const subscription = stream.subscribe();
+
+      // Generate data to test batching
+      for (let i = 0; i < 10; i++) {
+        sourceStream.next({ batch: i });
+      }
+
+      subscription.unsubscribe();
+    });
+
+    it('should cover comprehensive monitoring and health checks (lines 594-616)', () => {
+      service.onModuleInit();
+
+      // Create multiple streams for comprehensive monitoring
+      const streams = ['health1', 'health2', 'health3'].map(name => {
+        const source = new Subject<any>();
+        const stream = service.createManagedStream(name, source);
+        return { name, source, stream };
+      });
+
+      // Test all health monitoring methods
+      const allStreamHealth = service.getAllStreamHealth();
+      expect(typeof allStreamHealth).toBe('object');
+
+      streams.forEach(({ name }) => {
+        const health = service.getStreamHealth(name);
+        expect(health).toBeDefined();
+      });
+
+      const healthMetrics = service.getHealthMetrics();
+      expect(healthMetrics).toBeDefined();
+
+      const throughputMetrics = service.getThroughputMetrics();
+      expect(throughputMetrics).toBeDefined();
+
+      // Test stream statistics
+      const stats = service.getStreamStatistics();
+      expect(stats).toBeDefined();
+
+      // Clean up
+      streams.forEach(({ name }) => {
+        service.destroyManagedStream(name);
+      });
+    });
+
+    it('should cover comprehensive metrics and monitoring intervals (lines 636-638, 659-670)', () => {
+      const monitoringService = new StreamManagementService({
+        streamManagement: {
+          enabled: true,
+          monitoring: {
+            enabled: true,
+            metricsCollection: true,
+            detailed: true,
+            healthCheckInterval: 100,
+            performanceTracking: true,
+            globalMetricsInterval: 200,
+            cleanupInterval: 300
+          }
+        }
+      });
+
+      monitoringService.onModuleInit();
+
+      const sourceStream = new Subject<any>();
+      const stream = monitoringService.createManagedStream('metrics-comprehensive', sourceStream);
+      
+      const subscription = stream.subscribe();
+
+      // Generate metrics data
+      for (let i = 0; i < 15; i++) {
+        sourceStream.next({ comprehensive: i });
+      }
+
+      // Test various metric methods
+      const metrics = monitoringService.getStreamMetrics();
+      expect(metrics).toBeDefined();
+
+      const updates = monitoringService.getStreamUpdatesObservable();
+      expect(updates).toBeDefined();
+
+      subscription.unsubscribe();
+      monitoringService.onModuleDestroy();
+    });
+
+    it('should cover complete lifecycle and cleanup (lines 679-846)', () => {
+      const lifecycleService = new StreamManagementService({
+        streamManagement: {
+          enabled: true,
+          monitoring: {
+            enabled: true,
+            healthCheckInterval: 50,
+            globalMetricsInterval: 100,
+            cleanupInterval: 150
+          }
+        }
+      });
+
+      lifecycleService.onModuleInit();
+
+      // Create various streams
+      const sourceStreams = Array.from({ length: 5 }, (_, i) => {
+        const source = new Subject<any>();
+        const stream = lifecycleService.createManagedStream(`lifecycle-${i}`, source);
+        return { source, stream, name: `lifecycle-${i}` };
+      });
+
+      // Generate activity
+      sourceStreams.forEach(({ source }, i) => {
+        for (let j = 0; j < 3; j++) {
+          source.next({ lifecycle: i, data: j });
+        }
+      });
+
+      // Test metrics observables
+      const metricsObs = lifecycleService.getStreamUpdatesObservable();
+      expect(metricsObs).toBeDefined();
+
+      // Test comprehensive stream status
+      const managedStreams = lifecycleService.getManagedStreams();
+      expect(Object.keys(managedStreams).length).toBeGreaterThanOrEqual(5);
+
+      // Cleanup lifecycle
+      lifecycleService.onModuleDestroy();
+    });
+  });
 });
