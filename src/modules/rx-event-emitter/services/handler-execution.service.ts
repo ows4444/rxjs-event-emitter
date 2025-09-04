@@ -16,7 +16,7 @@ import {
   EVENT_EMITTER_OPTIONS,
   RegisteredHandler,
 } from '../interfaces';
-import type { EventEmitterOptions } from '../interfaces/configuration.interfaces';
+import type { AdvancedEventEmitterOptions } from '../interfaces/configuration.interfaces';
 import { HandlerPoolService } from './handler-pool.service';
 import { MetricsService } from './metrics.service';
 import { DeadLetterQueueService } from './dead-letter-queue.service';
@@ -128,7 +128,7 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
     @Optional() private readonly dlqService?: DeadLetterQueueService,
     @Optional()
     @Inject(EVENT_EMITTER_OPTIONS)
-    private readonly options: EventEmitterOptions = {},
+    private readonly options: AdvancedEventEmitterOptions = {},
   ) {
     this.config = {
       enabled: this.options.handlerExecution?.enabled ?? true,

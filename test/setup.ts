@@ -11,7 +11,7 @@ Logger.overrideLogger([]);
 beforeAll(async () => {
   // Use real timers for NestJS service lifecycle management
   jest.useRealTimers();
-  
+
   // Set test timeout for integration tests
   jest.setTimeout(30000);
 }, 60000);
@@ -21,9 +21,9 @@ afterAll(async () => {
   jest.restoreAllMocks();
   jest.clearAllTimers();
   jest.useRealTimers();
-  
+
   // Allow time for async cleanup
-  await new Promise(resolve => setTimeout(resolve, 100));
+  await new Promise((resolve) => setTimeout(resolve, 100));
 }, 10000);
 
 beforeEach(() => {
@@ -34,7 +34,7 @@ beforeEach(() => {
 afterEach(() => {
   // Minimal cleanup for performance while maintaining isolation
   jest.clearAllTimers();
-  
+
   // Restore console methods if they were mocked
   if (jest.isMockFunction(console.log)) {
     (console.log as jest.MockedFunction<typeof console.log>).mockRestore();

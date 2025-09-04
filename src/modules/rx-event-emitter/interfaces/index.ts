@@ -16,6 +16,7 @@ export { PoolRegisteredHandler } from './pool.interfaces';
 // =============================================================================
 
 export * from './configuration.interfaces';
+export { AdvancedEventEmitterOptions as ComprehensiveEventEmitterOptions } from './configuration.interfaces';
 
 // =============================================================================
 // PERSISTENCE INTERFACES - Event storage and retrieval

@@ -133,18 +133,18 @@ describe('HandlerExecutionService', () => {
       expect(service).toBeDefined();
     });
 
-    it('should initialize successfully with enabled configuration', async () => {
-      await expect(service.onModuleInit()).resolves.not.toThrow();
+    it('should initialize successfully with enabled configuration', () => {
+      expect(() => service.onModuleInit()).not.toThrow();
     });
 
     it('should shutdown gracefully', async () => {
-      await service.onModuleInit();
+      service.onModuleInit();
       await expect(service.onModuleDestroy()).resolves.not.toThrow();
     });
 
     it('should initialize without optional services', async () => {
       const minimalService = new HandlerExecutionService();
-      await expect(minimalService.onModuleInit()).resolves.not.toThrow();
+      expect(() => minimalService.onModuleInit()).not.toThrow();
       await minimalService.onModuleDestroy();
     });
 
@@ -155,7 +155,7 @@ describe('HandlerExecutionService', () => {
 
     it('should handle shutdown with active executions', async () => {
       jest.useFakeTimers();
-      await service.onModuleInit();
+      service.onModuleInit();
 
       const mockEvent = createMockEvent();
 
@@ -185,7 +185,7 @@ describe('HandlerExecutionService', () => {
 
   describe('Handler Execution', () => {
     beforeEach(async () => {
-      await service.onModuleInit();
+      service.onModuleInit();
     });
 
     it('should execute handler successfully', async () => {
@@ -272,7 +272,7 @@ describe('HandlerExecutionService', () => {
         { experimental: { enableStreamOptimization: true } },
       );
 
-      await serviceWithoutPool.onModuleInit();
+      serviceWithoutPool.onModuleInit();
 
       const mockEvent = createMockEvent();
       const mockHandler = createMockHandler();
@@ -313,8 +313,8 @@ describe('HandlerExecutionService', () => {
   });
 
   describe('Circuit Breaker', () => {
-    beforeEach(async () => {
-      await service.onModuleInit();
+    beforeEach(() => {
+      service.onModuleInit();
     });
 
     it('should handle circuit breaker functionality', async () => {
@@ -401,7 +401,7 @@ describe('HandlerExecutionService', () => {
         maxConcurrency: 5,
       });
 
-      await serviceWithCustomConfig.onModuleInit();
+      serviceWithCustomConfig.onModuleInit();
 
       const mockEvent = createMockEvent();
       const mockHandler = createMockHandler();
@@ -416,7 +416,7 @@ describe('HandlerExecutionService', () => {
 
   describe('Statistics and Monitoring', () => {
     beforeEach(async () => {
-      await service.onModuleInit();
+      service.onModuleInit();
     });
 
     it('should track handler statistics', async () => {
@@ -548,7 +548,7 @@ describe('HandlerExecutionService', () => {
 
   describe('Active Execution Management', () => {
     beforeEach(async () => {
-      await service.onModuleInit();
+      service.onModuleInit();
     });
 
     it('should track active executions', async () => {
@@ -635,7 +635,7 @@ describe('HandlerExecutionService', () => {
 
   describe('Error Handling and Edge Cases', () => {
     beforeEach(async () => {
-      await service.onModuleInit();
+      service.onModuleInit();
     });
 
     it('should handle handlers with invalid methods', async () => {
@@ -776,7 +776,7 @@ describe('HandlerExecutionService', () => {
     it('should handle minimal configuration', async () => {
       const minimalService = new HandlerExecutionService();
 
-      await minimalService.onModuleInit();
+      minimalService.onModuleInit();
 
       const mockEvent = createMockEvent();
       const mockHandler = createMockHandler();
@@ -791,7 +791,7 @@ describe('HandlerExecutionService', () => {
     it('should handle disabled configuration', async () => {
       const disabledService = new HandlerExecutionService(mockHandlerPoolService, mockMetricsService, mockDLQService, {});
 
-      await expect(disabledService.onModuleInit()).resolves.not.toThrow();
+      expect(() => disabledService.onModuleInit()).not.toThrow();
       await disabledService.onModuleDestroy();
     });
 
@@ -804,7 +804,7 @@ describe('HandlerExecutionService', () => {
         },
       });
 
-      await customService.onModuleInit();
+      customService.onModuleInit();
 
       const mockEvent = createMockEvent();
       const failingHandler = createMockHandler({
@@ -833,7 +833,7 @@ describe('HandlerExecutionService', () => {
         handlerExecution: { defaultTimeout: 10000 },
       });
 
-      await customService.onModuleInit();
+      customService.onModuleInit();
 
       expect(customService).toBeDefined();
 
@@ -853,7 +853,7 @@ describe('HandlerExecutionService', () => {
           burstSize: 3,
         },
       } as any);
-      await rateLimitService.onModuleInit();
+      rateLimitService.onModuleInit();
     });
 
     afterEach(async () => {
@@ -889,7 +889,7 @@ describe('HandlerExecutionService', () => {
       const noRateLimitService = new HandlerExecutionService(mockHandlerPoolService, mockMetricsService, mockDLQService, {
         handlerExecution: { defaultTimeout: 30000 },
       });
-      await noRateLimitService.onModuleInit();
+      noRateLimitService.onModuleInit();
 
       const mockEvent = createMockEvent();
       const mockHandler = createMockHandler();
@@ -933,7 +933,7 @@ describe('HandlerExecutionService', () => {
       service = new HandlerExecutionService(mockHandlerPoolService, mockMetricsService, mockDLQService, {
         handlerExecution: { defaultTimeout: 30000 },
       });
-      await service.onModuleInit();
+      service.onModuleInit();
     });
 
     afterEach(async () => {
@@ -1035,7 +1035,7 @@ describe('HandlerExecutionService', () => {
       }).compile();
 
       rateLimitService = module.get<HandlerExecutionService>(HandlerExecutionService);
-      await rateLimitService.onModuleInit();
+      rateLimitService.onModuleInit();
     });
 
     afterEach(async () => {
@@ -1075,7 +1075,7 @@ describe('HandlerExecutionService', () => {
       }).compile();
 
       const testService = moduleWithDefaults.get<HandlerExecutionService>(HandlerExecutionService);
-      await testService.onModuleInit();
+      testService.onModuleInit();
 
       const handler = createMockHandler();
       const mockEvent = createMockEvent();
@@ -1134,7 +1134,7 @@ describe('HandlerExecutionService', () => {
     it('should handle periodic cleanup interval setup', async () => {
       // Test that startPeriodicCleanup sets up interval correctly
       // Since onModuleInit is called in beforeEach, the interval should be set
-      await service.onModuleInit();
+      service.onModuleInit();
       expect((service as any).cleanupInterval).toBeDefined();
     });
   });
@@ -1161,7 +1161,7 @@ describe('HandlerExecutionService', () => {
 
       // Should log disabled message and return early
       const logSpy = jest.spyOn(disabledService['logger'], 'log');
-      await disabledService.onModuleInit();
+      disabledService.onModuleInit();
 
       expect(logSpy).toHaveBeenCalledWith('Handler execution service is disabled');
       await disabledService.onModuleDestroy();

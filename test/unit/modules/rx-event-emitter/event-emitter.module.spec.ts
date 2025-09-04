@@ -11,7 +11,7 @@ import { DeadLetterQueueService } from '@src/modules/rx-event-emitter/services/d
 import { HandlerPoolService } from '@src/modules/rx-event-emitter/services/handler-pool.service';
 import { HandlerExecutionService } from '@src/modules/rx-event-emitter/services/handler-execution.service';
 import { StreamManagementService } from '@src/modules/rx-event-emitter/services/stream-management.service';
-import { EVENT_EMITTER_OPTIONS } from '@src/modules/rx-event-emitter/interfaces';
+import { EVENT_EMITTER_OPTIONS, BackpressureStrategy } from '@src/modules/rx-event-emitter/interfaces';
 import type { RegisteredHandler } from '@src/modules/rx-event-emitter/interfaces';
 import type { EventEmitterOptions } from '@src/modules/rx-event-emitter/services';
 
@@ -483,7 +483,7 @@ describe('EventEmitterModule', () => {
         },
         streamManagement: {
           enabled: true,
-          backpressureStrategy: 'buffer',
+          backpressureStrategy: BackpressureStrategy.DROP_OLDEST,
         },
       };
 

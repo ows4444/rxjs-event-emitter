@@ -9,11 +9,11 @@ import { HandlerPoolService } from '@src/modules/rx-event-emitter/services/handl
 import { DependencyAnalyzerService } from '@src/modules/rx-event-emitter/services/dependency-analyzer.service';
 import { EventHandler } from '@src/modules/rx-event-emitter/decorators/event-handler.decorator';
 import { Injectable } from '@nestjs/common';
-import { Event, EventPriority } from '@src/modules/rx-event-emitter/interfaces';
+import { Event } from '@src/modules/rx-event-emitter/interfaces';
 
 /**
  * Integration Tests for Advanced Features
- * 
+ *
  * Following CHECKPOINT_PROCESS.md requirements:
  * - Circuit breaker functionality
  * - Handler dependency analysis and execution planning
@@ -36,12 +36,12 @@ describe('Advanced Features Integration', () => {
     circuitBreaker: {
       enabled: true,
       failureThreshold: 3,
-      recoveryTimeout: 5000
+      recoveryTimeout: 5000,
     },
     retryPolicy: {
       maxRetries: 2,
-      backoffMs: 500
-    }
+      backoffMs: 500,
+    },
   })
   @Injectable()
   class CircuitBreakerHandler {
@@ -49,13 +49,13 @@ describe('Advanced Features Integration', () => {
 
     async handle(event: Event): Promise<void> {
       CircuitBreakerHandler.failureCount++;
-      
+
       // Fail the first 5 attempts to test circuit breaker
       if (CircuitBreakerHandler.failureCount <= 5 && event.payload?.testCircuitBreaker) {
         throw new Error(`Circuit breaker test failure ${CircuitBreakerHandler.failureCount}`);
       }
-      
-      await new Promise(resolve => setTimeout(resolve, 10));
+
+      await new Promise((resolve) => setTimeout(resolve, 10));
     }
   }
 
@@ -66,49 +66,49 @@ describe('Advanced Features Integration', () => {
     poolConfig: {
       maxConcurrency: 3,
       queueSize: 10,
-      timeoutMs: 15000
-    }
+      timeoutMs: 15000,
+    },
   })
   @Injectable()
   class HeavyProcessingHandler {
     async handle(event: Event): Promise<void> {
       // Simulate heavy processing
-      await new Promise(resolve => setTimeout(resolve, event.payload?.processingTime || 100));
+      await new Promise((resolve) => setTimeout(resolve, event.payload?.processingTime || 100));
     }
   }
 
   @EventHandler('dependency.test.parent', {
     priority: 20,
     timeout: 3000,
-    dependencies: ['dependency.test.child1', 'dependency.test.child2']
+    dependencies: ['dependency.test.child1', 'dependency.test.child2'],
   })
   @Injectable()
   class ParentDependencyHandler {
-    async handle(event: Event): Promise<void> {
+    async handle(_event: Event): Promise<void> {
       // This should execute after child handlers
-      await new Promise(resolve => setTimeout(resolve, 20));
+      await new Promise((resolve) => setTimeout(resolve, 20));
     }
   }
 
   @EventHandler('dependency.test.child1', {
     priority: 10,
-    timeout: 2000
+    timeout: 2000,
   })
   @Injectable()
   class Child1DependencyHandler {
-    async handle(event: Event): Promise<void> {
-      await new Promise(resolve => setTimeout(resolve, 15));
+    async handle(_event: Event): Promise<void> {
+      await new Promise((resolve) => setTimeout(resolve, 15));
     }
   }
 
   @EventHandler('dependency.test.child2', {
     priority: 15,
-    timeout: 2000
+    timeout: 2000,
   })
   @Injectable()
   class Child2DependencyHandler {
-    async handle(event: Event): Promise<void> {
-      await new Promise(resolve => setTimeout(resolve, 10));
+    async handle(_event: Event): Promise<void> {
+      await new Promise((resolve) => setTimeout(resolve, 10));
     }
   }
 
@@ -119,8 +119,8 @@ describe('Advanced Features Integration', () => {
       maxRetries: 4,
       backoffMs: 100,
       exponentialBackoff: true,
-      maxBackoffMs: 2000
-    }
+      maxBackoffMs: 2000,
+    },
   })
   @Injectable()
   class ExponentialRetryHandler {
@@ -128,13 +128,13 @@ describe('Advanced Features Integration', () => {
 
     async handle(event: Event): Promise<void> {
       ExponentialRetryHandler.attemptCount++;
-      
+
       // Fail the first few attempts to test exponential backoff
       if (ExponentialRetryHandler.attemptCount <= 3 && event.payload?.testRetry) {
         throw new Error(`Retry test failure ${ExponentialRetryHandler.attemptCount}`);
       }
-      
-      await new Promise(resolve => setTimeout(resolve, 10));
+
+      await new Promise((resolve) => setTimeout(resolve, 10));
     }
   }
 
@@ -168,9 +168,9 @@ describe('Advanced Features Integration', () => {
               'heavy-processing-pool': {
                 maxConcurrency: 3,
                 queueSize: 10,
-                timeoutMs: 15000
-              }
-            }
+                timeoutMs: 15000,
+              },
+            },
           },
           circuitBreaker: {
             enabled: true,
@@ -180,9 +180,9 @@ describe('Advanced Features Integration', () => {
           dependencyAnalysis: {
             enabled: true,
             maxDepth: 5,
-            circularDependencyCheck: true
-          }
-        })
+            circularDependencyCheck: true,
+          },
+        }),
       ],
       providers: [
         CircuitBreakerHandler,
@@ -191,7 +191,7 @@ describe('Advanced Features Integration', () => {
         Child1DependencyHandler,
         Child2DependencyHandler,
         ExponentialRetryHandler,
-      ]
+      ],
     }).compile();
 
     // Get service instances
@@ -227,7 +227,7 @@ describe('Advanced Features Integration', () => {
         handlerPoolService.onModuleDestroy(),
         dependencyAnalyzerService.onModuleDestroy(),
       ]);
-      
+
       await module.close();
     } catch (error) {
       console.warn('Cleanup warning:', error);
@@ -244,17 +244,17 @@ describe('Advanced Features Integration', () => {
       const initialDlqCount = (await dlqService.getEntries(100)).length;
 
       // Generate events that will cause failures
-      const failurePromises = Array.from({ length: 6 }, (_, i) => 
+      const failurePromises = Array.from({ length: 6 }, (_, i) =>
         eventEmitterService.emit('circuit.breaker.test', {
           testCircuitBreaker: true,
-          attempt: i + 1
-        })
+          attempt: i + 1,
+        }),
       );
 
       await Promise.all(failurePromises);
 
       // Wait for processing and circuit breaker logic
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await new Promise((resolve) => setTimeout(resolve, 2000));
 
       // Check that some events ended up in DLQ due to circuit breaker
       const finalDlqCount = (await dlqService.getEntries(100)).length;
@@ -267,18 +267,18 @@ describe('Advanced Features Integration', () => {
 
     it('should recover after circuit breaker timeout', async () => {
       // First, trigger circuit breaker
-      const failurePromises = Array.from({ length: 4 }, (_, i) => 
+      const failurePromises = Array.from({ length: 4 }, () =>
         eventEmitterService.emit('circuit.breaker.test', {
           testCircuitBreaker: true,
-          phase: 'trigger'
-        })
+          phase: 'trigger',
+        }),
       );
 
       await Promise.all(failurePromises);
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
 
       // Wait for recovery timeout (5 seconds in config)
-      await new Promise(resolve => setTimeout(resolve, 6000));
+      await new Promise((resolve) => setTimeout(resolve, 6000));
 
       // Reset failure count to allow success
       CircuitBreakerHandler.failureCount = 10; // Above failure threshold to succeed
@@ -286,10 +286,10 @@ describe('Advanced Features Integration', () => {
       // Now send an event that should succeed
       await eventEmitterService.emit('circuit.breaker.test', {
         testCircuitBreaker: true,
-        phase: 'recovery'
+        phase: 'recovery',
       });
 
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise((resolve) => setTimeout(resolve, 500));
 
       // Circuit breaker should allow the event through
       const metrics = metricsService.getCurrentSystemMetrics();
@@ -302,17 +302,17 @@ describe('Advanced Features Integration', () => {
       const startTime = Date.now();
 
       // Submit more tasks than the pool can handle concurrently
-      const heavyPromises = Array.from({ length: 8 }, (_, i) => 
+      const heavyPromises = Array.from({ length: 8 }, (_, i) =>
         eventEmitterService.emit('heavy.processing', {
           taskId: `heavy-task-${i}`,
-          processingTime: 200 // 200ms processing time
-        })
+          processingTime: 200, // 200ms processing time
+        }),
       );
 
       await Promise.all(heavyPromises);
 
       // Wait for all processing to complete
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      await new Promise((resolve) => setTimeout(resolve, 3000));
 
       const endTime = Date.now();
       const totalTime = endTime - startTime;
@@ -329,18 +329,18 @@ describe('Advanced Features Integration', () => {
 
     it('should handle pool queue overflow gracefully', async () => {
       // Submit way more tasks than the pool can queue (queueSize: 10)
-      const overflowPromises = Array.from({ length: 20 }, (_, i) => 
+      const overflowPromises = Array.from({ length: 20 }, (_, i) =>
         eventEmitterService.emit('heavy.processing', {
           taskId: `overflow-task-${i}`,
-          processingTime: 100
-        })
+          processingTime: 100,
+        }),
       );
 
       // Some of these should be rejected or handled gracefully
-      const results = await Promise.allSettled(overflowPromises);
-      
+      await Promise.allSettled(overflowPromises);
+
       // Wait for processing
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await new Promise((resolve) => setTimeout(resolve, 2000));
 
       // System should handle overflow without crashing
       const poolStats = handlerPoolService.getPoolStats();
@@ -355,17 +355,14 @@ describe('Advanced Features Integration', () => {
   describe('Dependency Analysis and Execution Planning', () => {
     it('should analyze handler dependencies correctly', async () => {
       // Wait for dependency analysis to complete
-      await new Promise(resolve => setTimeout(resolve, 200));
+      await new Promise((resolve) => setTimeout(resolve, 200));
 
       // Get dependency analysis results
       const analysisResult = dependencyAnalyzerService.getDependencyAnalysis();
       expect(analysisResult).toBeDefined();
 
       // Check that parent handler has child dependencies
-      const parentAnalysis = analysisResult.find(item => 
-        item.handlerId.includes('ParentDependency') ||
-        item.eventName === 'dependency.test.parent'
-      );
+      const parentAnalysis = analysisResult.find((item) => item.handlerId.includes('ParentDependency') || item.eventName === 'dependency.test.parent');
 
       if (parentAnalysis) {
         expect(parentAnalysis.dependencies).toBeDefined();
@@ -375,7 +372,7 @@ describe('Advanced Features Integration', () => {
 
     it('should execute handlers in dependency order', async () => {
       const executionOrder: string[] = [];
-      
+
       // Mock handler execution to track order
       const originalExecuteHandler = handlerExecutionService.executeHandler;
       jest.spyOn(handlerExecutionService, 'executeHandler').mockImplementation(async (handler, event) => {
@@ -386,11 +383,11 @@ describe('Advanced Features Integration', () => {
       // Emit event that has dependencies
       await eventEmitterService.emit('dependency.test.parent', {
         testDependencies: true,
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
 
       // Wait for dependency resolution and execution
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
 
       // Restore original method
       jest.restoreAllMocks();
@@ -404,17 +401,17 @@ describe('Advanced Features Integration', () => {
       // This test verifies that the system can detect circular dependencies
       // during the dependency analysis phase
       const analysisResult = dependencyAnalyzerService.getDependencyAnalysis();
-      
+
       // Check that analysis completed without infinite loops
       expect(Array.isArray(analysisResult)).toBe(true);
-      
+
       // System should still be responsive
-      await eventEmitterService.emit('circuit.breaker.test', { 
-        testCircular: true 
+      await eventEmitterService.emit('circuit.breaker.test', {
+        testCircular: true,
       });
-      
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
+
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
       const metrics = metricsService.getCurrentSystemMetrics();
       expect(metrics.health.status).toBeDefined();
     });
@@ -431,11 +428,11 @@ describe('Advanced Features Integration', () => {
       // Emit event that will fail and retry with exponential backoff
       await eventEmitterService.emit('retry.exponential.test', {
         testRetry: true,
-        testId: 'exponential-backoff-test'
+        testId: 'exponential-backoff-test',
       });
 
       // Wait for all retry attempts to complete
-      await new Promise(resolve => setTimeout(resolve, 5000));
+      await new Promise((resolve) => setTimeout(resolve, 5000));
 
       const endTime = Date.now();
       const totalTime = endTime - startTime;
@@ -449,10 +446,8 @@ describe('Advanced Features Integration', () => {
 
       // After max retries, event should end up in DLQ
       const dlqEntries = await dlqService.getEntries(10);
-      const ourEntry = dlqEntries.find(entry => 
-        entry.event.payload?.testId === 'exponential-backoff-test'
-      );
-      
+      const ourEntry = dlqEntries.find((entry) => entry.event.payload?.testId === 'exponential-backoff-test');
+
       // Should either succeed after retries or end up in DLQ
       expect(ExponentialRetryHandler.attemptCount >= 3 || ourEntry).toBeTruthy();
     }, 10000);
@@ -463,10 +458,10 @@ describe('Advanced Features Integration', () => {
       // Event that will trigger maximum backoff
       await eventEmitterService.emit('retry.exponential.test', {
         testRetry: true,
-        testId: 'max-backoff-test'
+        testId: 'max-backoff-test',
       });
 
-      await new Promise(resolve => setTimeout(resolve, 6000));
+      await new Promise((resolve) => setTimeout(resolve, 6000));
 
       const endTime = Date.now();
       const totalTime = endTime - startTime;
@@ -489,34 +484,34 @@ describe('Advanced Features Integration', () => {
       // Emit events that use multiple advanced features
       const complexPromises = [
         // Circuit breaker test
-        eventEmitterService.emit('circuit.breaker.test', { 
-          testCircuitBreaker: true, 
-          scenario: 'complex' 
+        eventEmitterService.emit('circuit.breaker.test', {
+          testCircuitBreaker: true,
+          scenario: 'complex',
         }),
-        
+
         // Heavy processing with custom pool
         eventEmitterService.emit('heavy.processing', {
           taskId: 'complex-heavy-task',
-          processingTime: 150
+          processingTime: 150,
         }),
-        
+
         // Dependency-based execution
         eventEmitterService.emit('dependency.test.parent', {
           testDependencies: true,
-          scenario: 'complex'
+          scenario: 'complex',
         }),
-        
+
         // Exponential retry
         eventEmitterService.emit('retry.exponential.test', {
           testRetry: true,
-          scenario: 'complex'
-        })
+          scenario: 'complex',
+        }),
       ];
 
       await Promise.all(complexPromises);
 
       // Wait for all complex processing
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      await new Promise((resolve) => setTimeout(resolve, 3000));
 
       // System should remain stable and responsive
       const metrics = metricsService.getCurrentSystemMetrics();
@@ -525,7 +520,7 @@ describe('Advanced Features Integration', () => {
 
       // All services should still be operational
       expect(eventEmitterService.isShuttingDown()).toBe(false);
-      
+
       // Pool stats should show activity
       const poolStats = handlerPoolService.getPoolStats();
       expect(Object.keys(poolStats).length).toBeGreaterThanOrEqual(1);
@@ -543,15 +538,15 @@ describe('Advanced Features Integration', () => {
         eventEmitterService.emit('retry.exponential.test', { monitoring: 'test3' }),
       ]);
 
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      await new Promise((resolve) => setTimeout(resolve, 1500));
 
       // Comprehensive metrics should be available
       const systemMetrics = metricsService.getCurrentSystemMetrics();
-      
+
       expect(systemMetrics.events).toBeDefined();
       expect(systemMetrics.health).toBeDefined();
       expect(systemMetrics.streams).toBeDefined();
-      
+
       // Handler-level metrics
       if (systemMetrics.handlers) {
         expect(typeof systemMetrics.handlers).toBe('object');

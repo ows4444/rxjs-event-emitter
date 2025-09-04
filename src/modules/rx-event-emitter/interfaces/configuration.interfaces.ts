@@ -376,13 +376,13 @@ export interface TenantIsolationConfig {
   /** Tenant validation function */
   tenantValidation?: (tenantId: string) => boolean;
   /** Tenant-specific configurations */
-  tenantConfigs?: Readonly<Record<string, Partial<EventEmitterOptions>>>;
+  tenantConfigs?: Readonly<Record<string, Partial<AdvancedEventEmitterOptions>>>;
 }
 
 /**
- * Main configuration for the event emitter
+ * Comprehensive configuration for the event emitter (advanced features)
  */
-export interface EventEmitterOptions {
+export interface AdvancedEventEmitterOptions {
   /** Persistence configuration */
   persistence?: PersistenceConfig;
   /** Dead letter queue configuration */
@@ -434,7 +434,7 @@ export interface EventEmitterOptions {
 /**
  * NestJS module configuration
  */
-export interface ModuleConfig extends EventEmitterOptions {
+export interface ModuleConfig extends AdvancedEventEmitterOptions {
   /** Make module global */
   global?: boolean;
   /** Module imports */
@@ -464,7 +464,7 @@ export interface ConfigurationValidator {
   /**
    * Validate event emitter options
    */
-  validateOptions(options: EventEmitterOptions): ConfigurationValidationResult;
+  validateOptions(options: AdvancedEventEmitterOptions): ConfigurationValidationResult;
 
   /**
    * Validate handler options

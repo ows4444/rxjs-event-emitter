@@ -12,11 +12,11 @@ import { HandlerPoolService } from '@src/modules/rx-event-emitter/services/handl
 import { DependencyAnalyzerService } from '@src/modules/rx-event-emitter/services/dependency-analyzer.service';
 import { EventHandler } from '@src/modules/rx-event-emitter/decorators/event-handler.decorator';
 import { Injectable } from '@nestjs/common';
-import { Event, EventPriority } from '@src/modules/rx-event-emitter/interfaces';
+import { Event } from '@src/modules/rx-event-emitter/interfaces';
 
 /**
  * Integration Tests for Event Processing Workflows
- * 
+ *
  * Following CHECKPOINT_PROCESS.md requirements:
  * - Service integration and event workflow testing
  * - Event workflows, handler discovery, service integration
@@ -40,27 +40,27 @@ describe('Event Workflows Integration', () => {
     timeout: 5000,
     retryPolicy: {
       maxRetries: 3,
-      backoffMs: 1000
-    }
+      backoffMs: 1000,
+    },
   })
   @Injectable()
   class UserCreatedHandler {
-    async handle(event: Event): Promise<void> {
+    async handle(_event: Event): Promise<void> {
       // Simulate user creation handling
-      await new Promise(resolve => setTimeout(resolve, 10));
+      await new Promise((resolve) => setTimeout(resolve, 10));
     }
   }
 
   @EventHandler('order.placed', {
     priority: 10,
     timeout: 3000,
-    poolName: 'order-pool'
+    poolName: 'order-pool',
   })
   @Injectable()
   class OrderPlacedHandler {
-    async handle(event: Event): Promise<void> {
+    async handle(_event: Event): Promise<void> {
       // Simulate order processing
-      await new Promise(resolve => setTimeout(resolve, 20));
+      await new Promise((resolve) => setTimeout(resolve, 20));
     }
   }
 
@@ -70,8 +70,8 @@ describe('Event Workflows Integration', () => {
     retryPolicy: {
       maxRetries: 5,
       backoffMs: 2000,
-      exponentialBackoff: true
-    }
+      exponentialBackoff: true,
+    },
   })
   @Injectable()
   class PaymentProcessedHandler {
@@ -80,7 +80,7 @@ describe('Event Workflows Integration', () => {
       if (event.payload?.shouldFail) {
         throw new Error('Payment processing failed');
       }
-      await new Promise(resolve => setTimeout(resolve, 30));
+      await new Promise((resolve) => setTimeout(resolve, 30));
     }
   }
 
@@ -116,13 +116,9 @@ describe('Event Workflows Integration', () => {
             failureThreshold: 5,
             recoveryTimeout: 30000,
           },
-        })
+        }),
       ],
-      providers: [
-        UserCreatedHandler,
-        OrderPlacedHandler,
-        PaymentProcessedHandler,
-      ]
+      providers: [UserCreatedHandler, OrderPlacedHandler, PaymentProcessedHandler],
     }).compile();
 
     // Get service instances
@@ -166,7 +162,7 @@ describe('Event Workflows Integration', () => {
         dependencyAnalyzerService.onModuleDestroy(),
         handlerDiscoveryService.onModuleDestroy(),
       ]);
-      
+
       await module.close();
     } catch (error) {
       console.warn('Cleanup warning:', error);
@@ -188,7 +184,7 @@ describe('Event Workflows Integration', () => {
 
     it('should have EventEmitterModule configuration applied', () => {
       expect(eventEmitterService.isShuttingDown()).toBe(false);
-      
+
       // Check that metrics service is collecting data
       const systemMetrics = metricsService.getCurrentSystemMetrics();
       expect(systemMetrics).toBeDefined();
@@ -201,13 +197,13 @@ describe('Event Workflows Integration', () => {
   describe('Handler Discovery and Registration', () => {
     it('should discover and register all decorated handlers', async () => {
       // Give time for handler discovery to complete
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
       const registeredHandlers = eventEmitterService.getAllHandlers();
-      
+
       // Should find our 3 test handlers
       expect(registeredHandlers.length).toBeGreaterThanOrEqual(3);
-      
+
       // Check specific event handlers are registered
       const eventNames = eventEmitterService.getEventNames();
       expect(eventNames).toContain('user.created');
@@ -221,12 +217,12 @@ describe('Event Workflows Integration', () => {
     });
 
     it('should register handlers with correct metadata', async () => {
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
       const registeredHandlers = eventEmitterService.getAllHandlers();
-      const userCreatedHandler = registeredHandlers.find(h => h.metadata.eventName === 'user.created');
-      const orderPlacedHandler = registeredHandlers.find(h => h.metadata.eventName === 'order.placed');
-      const paymentHandler = registeredHandlers.find(h => h.metadata.eventName === 'payment.processed');
+      const userCreatedHandler = registeredHandlers.find((h) => h.metadata.eventName === 'user.created');
+      const orderPlacedHandler = registeredHandlers.find((h) => h.metadata.eventName === 'order.placed');
+      const paymentHandler = registeredHandlers.find((h) => h.metadata.eventName === 'payment.processed');
 
       expect(userCreatedHandler).toBeDefined();
       expect(userCreatedHandler?.metadata.options.priority).toBe(5);
@@ -251,17 +247,17 @@ describe('Event Workflows Integration', () => {
       await eventEmitterService.emit('user.created', {
         userId: 'user-123',
         email: 'test@example.com',
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
       });
 
       await eventEmitterService.emit('order.placed', {
         orderId: 'order-456',
         userId: 'user-123',
-        amount: 99.99
+        amount: 99.99,
       });
 
       // Wait for event processing
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise((resolve) => setTimeout(resolve, 500));
 
       // Check metrics were updated
       const finalMetrics = metricsService.getCurrentSystemMetrics();
@@ -273,24 +269,21 @@ describe('Event Workflows Integration', () => {
       const testEvent = {
         orderId: 'persist-order-789',
         userId: 'user-456',
-        amount: 149.99
+        amount: 149.99,
       };
 
       // Emit event with persistence
       await eventEmitterService.emitWithPersistence('order.placed', testEvent);
 
       // Wait for processing
-      await new Promise(resolve => setTimeout(resolve, 300));
+      await new Promise((resolve) => setTimeout(resolve, 300));
 
       // Check that event was persisted
       const persistedEvents = persistenceService.getUnprocessed();
       expect(persistedEvents.length).toBeGreaterThanOrEqual(1);
 
       // Find our specific event
-      const ourEvent = persistedEvents.find(e => 
-        e.metadata.name === 'order.placed' && 
-        e.payload.orderId === 'persist-order-789'
-      );
+      const ourEvent = persistedEvents.find((e) => e.metadata.name === 'order.placed' && e.payload.orderId === 'persist-order-789');
       expect(ourEvent).toBeDefined();
     });
 
@@ -299,18 +292,18 @@ describe('Event Workflows Integration', () => {
       const initialProcessed = initialMetrics.events.totalProcessed;
 
       // Emit multiple events concurrently
-      const promises = Array.from({ length: 10 }, (_, i) => 
+      const promises = Array.from({ length: 10 }, (_, i) =>
         eventEmitterService.emit('user.created', {
           userId: `concurrent-user-${i}`,
           email: `user${i}@example.com`,
-          createdAt: new Date().toISOString()
-        })
+          createdAt: new Date().toISOString(),
+        }),
       );
 
       await Promise.all(promises);
 
       // Wait for all events to be processed
-      await new Promise(resolve => setTimeout(resolve, 800));
+      await new Promise((resolve) => setTimeout(resolve, 800));
 
       // Check that all events were processed
       const finalMetrics = metricsService.getCurrentSystemMetrics();
@@ -321,12 +314,12 @@ describe('Event Workflows Integration', () => {
       // Emit events with different priorities in reverse order
       await Promise.all([
         eventEmitterService.emit('user.created', { priority: 'low', order: 1 }), // priority 5
-        eventEmitterService.emit('order.placed', { priority: 'medium', order: 2 }), // priority 10  
+        eventEmitterService.emit('order.placed', { priority: 'medium', order: 2 }), // priority 10
         eventEmitterService.emit('payment.processed', { priority: 'high', order: 3 }), // priority 15
       ]);
 
       // Wait for processing
-      await new Promise(resolve => setTimeout(resolve, 400));
+      await new Promise((resolve) => setTimeout(resolve, 400));
 
       // All should be processed successfully (specific ordering depends on stream timing)
       const metrics = metricsService.getCurrentSystemMetrics();
@@ -342,11 +335,11 @@ describe('Event Workflows Integration', () => {
       await eventEmitterService.emit('payment.processed', {
         paymentId: 'fail-payment-123',
         shouldFail: true,
-        amount: 199.99
+        amount: 199.99,
       });
 
       // Wait for processing and retry attempts
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
 
       // Check that the event was sent to DLQ after retries
       const finalDlqStats = dlqService.getStats();
@@ -362,19 +355,17 @@ describe('Event Workflows Integration', () => {
       await eventEmitterService.emit('payment.processed', {
         paymentId: 'reprocess-payment-456',
         shouldFail: true,
-        amount: 299.99
+        amount: 299.99,
       });
 
       // Wait for it to fail and go to DLQ
-      await new Promise(resolve => setTimeout(resolve, 800));
+      await new Promise((resolve) => setTimeout(resolve, 800));
 
       const dlqEntries = await dlqService.getEntries(10);
       expect(dlqEntries.length).toBeGreaterThan(0);
 
       // Find our specific entry
-      const ourEntry = dlqEntries.find(entry => 
-        entry.event.payload?.paymentId === 'reprocess-payment-456'
-      );
+      const ourEntry = dlqEntries.find((entry) => entry.event.payload?.paymentId === 'reprocess-payment-456');
 
       if (ourEntry) {
         // Modify the event to succeed this time
@@ -382,19 +373,19 @@ describe('Event Workflows Integration', () => {
           ...ourEntry.event,
           payload: {
             ...ourEntry.event.payload,
-            shouldFail: false
-          }
+            shouldFail: false,
+          },
         };
 
         // Reprocess the entry (this would normally succeed)
         await dlqService.reprocessEntry(ourEntry.id, modifiedEvent);
-        
+
         // Wait for reprocessing
-        await new Promise(resolve => setTimeout(resolve, 200));
+        await new Promise((resolve) => setTimeout(resolve, 200));
 
         // The entry should be removed from DLQ or marked as reprocessed
         const updatedEntries = await dlqService.getEntries(10);
-        const stillExists = updatedEntries.find(entry => entry.id === ourEntry.id);
+        const stillExists = updatedEntries.find((entry) => entry.id === ourEntry.id);
         // The entry might still exist but should be marked differently or removed
         expect(stillExists?.attempts).toBeDefined();
       }
@@ -406,18 +397,18 @@ describe('Event Workflows Integration', () => {
       const initialMetrics = streamManagementService.getStreamMetrics();
 
       // Generate high throughput of events
-      const promises = Array.from({ length: 100 }, (_, i) => 
+      const promises = Array.from({ length: 100 }, (_, i) =>
         eventEmitterService.emit('user.created', {
           userId: `stream-user-${i}`,
           email: `streamuser${i}@example.com`,
-          batch: 'high-throughput-test'
-        })
+          batch: 'high-throughput-test',
+        }),
       );
 
       await Promise.all(promises);
 
       // Wait for stream processing
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      await new Promise((resolve) => setTimeout(resolve, 1500));
 
       // Check stream metrics
       const finalMetrics = streamManagementService.getStreamMetrics();
@@ -454,14 +445,14 @@ describe('Event Workflows Integration', () => {
       ]);
 
       // Wait for processing
-      await new Promise(resolve => setTimeout(resolve, 400));
+      await new Promise((resolve) => setTimeout(resolve, 400));
 
       const finalPoolStats = handlerPoolService.getPoolStats();
       expect(Object.keys(finalPoolStats).length).toBeGreaterThanOrEqual(1);
 
       // Should have some pool utilization
       const poolNames = Object.keys(finalPoolStats);
-      poolNames.forEach(poolName => {
+      poolNames.forEach((poolName) => {
         expect(finalPoolStats[poolName]).toBeDefined();
         expect(finalPoolStats[poolName].totalExecutions).toBeGreaterThanOrEqual(0);
       });
@@ -471,7 +462,7 @@ describe('Event Workflows Integration', () => {
   describe('Comprehensive System Health', () => {
     it('should provide comprehensive system health metrics', () => {
       const systemMetrics = metricsService.getCurrentSystemMetrics();
-      
+
       // Health metrics should be available
       expect(systemMetrics.health.status).toMatch(/^(healthy|warning|critical)$/);
       expect(systemMetrics.health.score).toBeGreaterThanOrEqual(0);
