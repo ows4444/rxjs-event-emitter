@@ -84,11 +84,11 @@ describe('StreamManagementService', () => {
     });
 
     it('should initialize successfully', async () => {
-      await expect(service.onModuleInit()).resolves.not.toThrow();
+      expect(() => service.onModuleInit()).not.toThrow();
     });
 
     it('should shutdown gracefully', async () => {
-      await service.onModuleInit();
+      service.onModuleInit();
       await expect(service.onModuleDestroy()).resolves.not.toThrow();
     });
 
@@ -110,17 +110,17 @@ describe('StreamManagementService', () => {
       }).compile();
 
       const disabledService = module.get<StreamManagementService>(StreamManagementService);
-      await expect(disabledService.onModuleInit()).resolves.not.toThrow();
+      expect(() => disabledService.onModuleInit()).not.toThrow();
       await disabledService.onModuleDestroy();
     });
 
     it('should handle multiple initialization calls', async () => {
-      await service.onModuleInit();
-      await expect(service.onModuleInit()).resolves.not.toThrow();
+      service.onModuleInit();
+      expect(() => service.onModuleInit()).not.toThrow();
     });
 
     it('should handle multiple destruction calls', async () => {
-      await service.onModuleInit();
+      service.onModuleInit();
       await service.onModuleDestroy();
       await expect(service.onModuleDestroy()).resolves.not.toThrow();
     });
@@ -135,7 +135,7 @@ describe('StreamManagementService', () => {
       const defaultService = module.get<StreamManagementService>(StreamManagementService);
       expect(defaultService).toBeDefined();
 
-      await defaultService.onModuleInit();
+      defaultService.onModuleInit();
       await defaultService.onModuleDestroy();
     });
 

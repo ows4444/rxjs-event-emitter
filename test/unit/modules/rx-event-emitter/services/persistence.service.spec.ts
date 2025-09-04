@@ -23,52 +23,52 @@ describe('PersistenceService', () => {
 
   describe('Event persistence', () => {
     it('should save and retrieve an event', async () => {
-      await service.save(sampleEvent);
+      service.save(sampleEvent);
 
-      const saved = await service.getById('event-1');
+      const saved = service.getById('event-1');
       expect(saved).toBeDefined();
       expect(saved?.metadata.id).toBe('event-1');
       expect(saved?.status).toBe(EventStatus.PENDING);
     });
 
     it('should update event status', async () => {
-      await service.save(sampleEvent);
-      await service.updateStatus('event-1', EventStatus.PROCESSING);
+      service.save(sampleEvent);
+      service.updateStatus('event-1', EventStatus.PROCESSING);
 
-      const updated = await service.getById('event-1');
+      const updated = service.getById('event-1');
       expect(updated?.status).toBe(EventStatus.PROCESSING);
     });
 
     it('should return events by status', async () => {
-      await service.save(sampleEvent, EventStatus.PROCESSING);
+      service.save(sampleEvent, EventStatus.PROCESSING);
 
-      const processed = await service.getByStatus(EventStatus.PROCESSING);
+      const processed = service.getByStatus(EventStatus.PROCESSING);
       expect(processed).toHaveLength(1);
       expect(processed[0].metadata.id).toBe('event-1');
     });
 
     it('should return unprocessed events', async () => {
-      await service.save(sampleEvent, EventStatus.PENDING);
+      service.save(sampleEvent, EventStatus.PENDING);
 
-      const pending = await service.getUnprocessed();
+      const pending = service.getUnprocessed();
       expect(pending).toHaveLength(1);
       expect(pending[0].status).toBe(EventStatus.PENDING);
     });
 
     it('should delete event by id', async () => {
-      await service.save(sampleEvent);
-      const deleted = await service.deleteById('event-1');
+      service.save(sampleEvent);
+      const deleted = service.deleteById('event-1');
 
       expect(deleted).toBe(true);
-      expect(await service.getById('event-1')).toBeUndefined();
+      expect(service.getById('event-1')).toBeUndefined();
     });
 
     it('should count and clear events', async () => {
-      await service.save(sampleEvent);
-      expect(await service.count()).toBe(1);
+      service.save(sampleEvent);
+      expect(service.count()).toBe(1);
 
-      await service.clear();
-      expect(await service.count()).toBe(0);
+      service.clear();
+      expect(service.count()).toBe(0);
     });
   });
 
@@ -106,19 +106,19 @@ describe('PersistenceService', () => {
         },
       ];
 
-      await service.saveDLQEntries(entries);
-      const all = await service.getDLQEntriesForService();
+      service.saveDLQEntries(entries);
+      const all = service.getDLQEntriesForService();
 
       expect(all).toHaveLength(2);
     });
 
     it('should delete DLQ entry', async () => {
-      await service.saveDLQEntry(dlqEntry);
+      service.saveDLQEntry(dlqEntry);
 
-      const deleted = await service.deleteDLQEntry('event-1');
+      const deleted = service.deleteDLQEntry('event-1');
       expect(deleted).toBe(true);
 
-      const retrieved = await service.getDLQEntry('event-1');
+      const retrieved = service.getDLQEntry('event-1');
       expect(retrieved).toBeUndefined();
     });
   });
@@ -198,7 +198,7 @@ describe('PersistenceService', () => {
         },
       ];
 
-      await expect(service.saveDLQEntries(dlqEntries)).rejects.toThrow('DLQ batch storage error');
+      expect(() => service.saveDLQEntries(dlqEntries)).toThrow('DLQ batch storage error');
 
       // Restore the original Map
       (service as any).dlqEntries = originalDlqEntries;
