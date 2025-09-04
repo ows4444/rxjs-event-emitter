@@ -1220,9 +1220,9 @@ describe('DeadLetterQueueService', () => {
       };
 
       const errorLoggingService = new DeadLetterQueueService(config, mockPersistenceService as any);
-      
+
       const logSpy = jest.spyOn((errorLoggingService as any).logger, 'error').mockImplementation();
-      
+
       const mockEvent = {
         metadata: { id: 'error-test', name: 'test.error', timestamp: Date.now() },
         payload: { data: 'error test' },
@@ -1252,9 +1252,9 @@ describe('DeadLetterQueueService', () => {
       };
 
       const persistenceErrorService = new DeadLetterQueueService(config, mockPersistenceService as any);
-      
+
       const logSpy = jest.spyOn((persistenceErrorService as any).logger, 'error').mockImplementation();
-      
+
       const mockEvent = {
         metadata: { id: 'persist-error', name: 'test.persist', timestamp: Date.now() },
         payload: { data: 'persistence test' },
@@ -1271,10 +1271,7 @@ describe('DeadLetterQueueService', () => {
 
     it('should handle persistence service not available scenario', async () => {
       // Test with no persistence service
-      const noPersistenceService = new DeadLetterQueueService(
-        { deadLetterQueue: { enabled: true } },
-        undefined as any
-      );
+      const noPersistenceService = new DeadLetterQueueService({ deadLetterQueue: { enabled: true } }, undefined as any);
 
       const mockEvent = {
         metadata: { id: 'no-persist', name: 'test.nopersist', timestamp: Date.now() },

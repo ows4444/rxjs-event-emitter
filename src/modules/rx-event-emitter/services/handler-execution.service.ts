@@ -126,7 +126,9 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
     @Optional() private readonly handlerPoolService?: HandlerPoolService,
     @Optional() private readonly metricsService?: MetricsService,
     @Optional() private readonly dlqService?: DeadLetterQueueService,
-    @Optional() @Inject(EVENT_EMITTER_OPTIONS) private readonly options: EventEmitterOptions = {},
+    @Optional()
+    @Inject(EVENT_EMITTER_OPTIONS)
+    private readonly options: EventEmitterOptions = {},
   ) {
     this.config = {
       enabled: this.options.handlerExecution?.enabled ?? true,
@@ -153,7 +155,7 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  async onModuleInit(): Promise<void> {
+  onModuleInit(): void {
     if (!this.config.enabled) {
       this.logger.log('Handler execution service is disabled');
       return;
@@ -223,7 +225,7 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
         return executionResult;
       } else {
         // Handler failed, treat as error
-        await this.handleExecutionFailure(handlerId, event, result.error!, executionResult);
+        this.handleExecutionFailure(handlerId, event, result.error!, executionResult);
         throw result.error!;
       }
     } finally {
@@ -306,7 +308,7 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
       const startTime = Date.now();
 
       try {
-        let _result: unknown;
+        //let _result: unknown;
 
         // Check if handler has a valid handler function
         if (!handler.handler || typeof handler.handler !== 'function') {
@@ -315,10 +317,12 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
 
         if (this.handlerPoolService) {
           // Execute in isolated pool
-          _result = await this.handlerPoolService.executeInPool(context.poolName, async () => await handler.handler(event));
+          // _result =
+          await this.handlerPoolService.executeInPool(context.poolName, async () => await handler.handler(event));
         } else {
           // Direct execution
-          _result = await handler.handler(event);
+          // _result =
+          await handler.handler(event);
         }
 
         const duration = Date.now() - startTime;
@@ -428,7 +432,7 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
     this.executionResults$.next(result);
   }
 
-  private async handleExecutionFailure(handlerId: string, event: Event, error: Error, result: DetailedExecutionResult): Promise<void> {
+  private handleExecutionFailure(handlerId: string, event: Event, error: Error, result: DetailedExecutionResult): void {
     this.updateExecutionStats(handlerId, false, result.executionTime || 0, error);
     this.updateCircuitBreaker(handlerId, false);
 
@@ -438,7 +442,7 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
 
     // Send to dead letter queue if configured
     if (this.dlqService && !result.needsRetry) {
-      await this.dlqService.addEntry(event, error);
+      this.dlqService.addEntry(event, error);
     }
 
     this.executionResults$.next(result);
@@ -496,7 +500,7 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
   private updateCircuitBreaker(handlerId: string, success: boolean): void {
     const currentCb = this.circuitBreakers.get(handlerId);
 
-    let updatedCb;
+    let updatedCb: CircuitBreakerMetrics;
     if (!currentCb) {
       updatedCb = {
         state: CircuitBreakerState.CLOSED,
@@ -544,7 +548,7 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
         ...finalCb,
         state: CircuitBreakerState.OPEN,
         nextAttemptTime: Date.now() + (finalCb.config.recoveryTimeout ?? 30000),
-      } as any;
+      };
       this.logger.warn(`Circuit breaker opened for handler ${handlerId}`);
     } else if (finalCb.state === CircuitBreakerState.OPEN && finalCb.nextAttemptTime && Date.now() >= finalCb.nextAttemptTime) {
       const halfOpenState: CircuitBreakerMetrics = {
@@ -557,7 +561,7 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
         failureRate: finalCb.failureRate,
         config: finalCb.config,
       };
-      finalCb = halfOpenState as any;
+      finalCb = halfOpenState;
       this.logger.log(`Circuit breaker half-open for handler ${handlerId}`);
     }
 
@@ -592,13 +596,17 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
     this.rateLimiters.set(handlerId, updatedLimiter);
 
     if (updatedLimiter.tokens > 0) {
-      this.rateLimiters.set(handlerId, { ...updatedLimiter, tokens: updatedLimiter.tokens - 1 });
+      this.rateLimiters.set(handlerId, {
+        ...updatedLimiter,
+        tokens: updatedLimiter.tokens - 1,
+      });
       return true;
     }
 
     return false;
   }
 
+  // TODO: Implement exponential backoff and jitter for retries
   private shouldRetry(error: Error, attempt: number): boolean {
     if (attempt >= this.config.maxRetries) return false;
 
@@ -617,22 +625,19 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
   }
 
   private setupExecutionMonitoring(): void {
-    // Monitor for stuck executions
-    //     const monitoringInterval = setInterval(() => {
-    //       const now = Date.now();
-    //       const stuckExecutions = Array.from(this.activeExecutions.values())
-    //         .filter(ctx => now > ctx.timeoutAt);
-    //
-    //       stuckExecutions.forEach(ctx => {
-    //         this.logger.warn(`Execution ${ctx.executionId} appears stuck, started at ${new Date(ctx.startedAt)}`);
-    //         this.cancelExecution(ctx.executionId);
-    //       });
-    //     }, 30000); // Check every 30 seconds
-    //
-    //     // Clean up on shutdown
-    //     this.shutdown$.subscribe(() => {
-    //       clearInterval(monitoringInterval);
-    //     });
+    const monitoringInterval = setInterval(() => {
+      const now = Date.now();
+
+      const stuckExecutions = Array.from(this.activeExecutions.values()).filter((ctx) => now > ctx.timeoutAt);
+
+      for (const ctx of stuckExecutions) {
+        this.logger.warn(`Execution ${ctx.executionId} appears stuck (started at ${new Date(ctx.startedAt).toISOString()})`);
+        this.cancelExecution(ctx.executionId);
+      }
+    }, 30000); // Check every 30 seconds
+
+    // Clean up on shutdown
+    this.shutdown$.subscribe(() => clearInterval(monitoringInterval));
   }
 
   private startPeriodicCleanup(): void {
@@ -643,37 +648,37 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
   }
 
   private cleanupOldStats(): void {
-    const _cutoffTime = Date.now() - 3600000; // 1 hour ago
-    //     let cleanedCount = 0;
-    //
-    //     for (const [handlerId, stats] of this.executionStats) {
-    //       if (stats.lastExecutionAt && stats.lastExecutionAt < cutoffTime) {
-    //         this.executionStats.delete(handlerId);
-    //         this.circuitBreakers.delete(handlerId);
-    //         cleanedCount++;
-    //       }
-    //     }
-    //
-    //     if (cleanedCount > 0) {
-    //       this.logger.debug(`Cleaned up ${cleanedCount} old handler statistics`);
-    //       this.updateStatsObservable();
-    //     }
+    const cutoffTime = Date.now() - 3600000; // 1 hour ago
+    let cleanedCount = 0;
+
+    for (const [handlerId, stats] of this.executionStats) {
+      if (stats.lastExecutionAt && stats.lastExecutionAt < cutoffTime) {
+        this.executionStats.delete(handlerId);
+        this.circuitBreakers.delete(handlerId);
+        cleanedCount++;
+      }
+    }
+
+    if (cleanedCount > 0) {
+      this.logger.debug(`Cleaned up ${cleanedCount} old handler statistics`);
+      this.updateStatsObservable();
+    }
   }
 
   private cleanupRateLimiters(): void {
-    const _cutoffTime = Date.now() - 300000; // 5 minutes ago
-    //     let cleanedCount = 0;
-    //
-    //     for (const [handlerId, limiter] of this.rateLimiters) {
-    //       if (limiter.lastRefill < cutoffTime) {
-    //         this.rateLimiters.delete(handlerId);
-    //         cleanedCount++;
-    //       }
-    //     }
-    //
-    //     if (cleanedCount > 0) {
-    //       this.logger.debug(`Cleaned up ${cleanedCount} old rate limiters`);
-    //     }
+    const cutoffTime = Date.now() - 300000; // 5 minutes ago
+    let cleanedCount = 0;
+
+    for (const [handlerId, limiter] of this.rateLimiters) {
+      if (limiter.lastRefill < cutoffTime) {
+        this.rateLimiters.delete(handlerId);
+        cleanedCount++;
+      }
+    }
+
+    if (cleanedCount > 0) {
+      this.logger.debug(`Cleaned up ${cleanedCount} old rate limiters`);
+    }
   }
 
   private updateStatsObservable(): void {

@@ -160,7 +160,11 @@ export class StreamManagementService implements OnModuleInit, OnModuleDestroy {
   private readonly streamHealth = new Map<string, StreamHealth>();
 
   private readonly metrics$: BehaviorSubject<StreamMetrics>;
-  private readonly streamUpdates$ = new Subject<{ action: 'created' | 'destroyed' | 'error'; streamId: string; details?: unknown }>();
+  private readonly streamUpdates$ = new Subject<{
+    action: 'created' | 'destroyed' | 'error';
+    streamId: string;
+    details?: unknown;
+  }>();
 
   private metricsTimer?: NodeJS.Timeout;
   private healthCheckTimer?: NodeJS.Timeout;
@@ -171,7 +175,11 @@ export class StreamManagementService implements OnModuleInit, OnModuleDestroy {
   private totalItemsDropped = 0;
   private totalErrors = 0;
 
-  constructor(@Optional() @Inject(EVENT_EMITTER_OPTIONS) private readonly options: Record<string, unknown> = {}) {
+  constructor(
+    @Optional()
+    @Inject(EVENT_EMITTER_OPTIONS)
+    private readonly options: Record<string, unknown> = {},
+  ) {
     // Create default configuration
     const defaultConfig: Required<StreamConfig> = {
       enabled: true,
@@ -222,19 +230,31 @@ export class StreamManagementService implements OnModuleInit, OnModuleDestroy {
 
     // Deep merge each nested configuration section
     if (userConfig.backpressure) {
-      result.backpressure = { ...defaultConfig.backpressure, ...userConfig.backpressure };
+      result.backpressure = {
+        ...defaultConfig.backpressure,
+        ...userConfig.backpressure,
+      };
     }
     if (userConfig.batching) {
       result.batching = { ...defaultConfig.batching, ...userConfig.batching };
     }
     if (userConfig.concurrency) {
-      result.concurrency = { ...defaultConfig.concurrency, ...userConfig.concurrency };
+      result.concurrency = {
+        ...defaultConfig.concurrency,
+        ...userConfig.concurrency,
+      };
     }
     if (userConfig.errorHandling) {
-      result.errorHandling = { ...defaultConfig.errorHandling, ...userConfig.errorHandling };
+      result.errorHandling = {
+        ...defaultConfig.errorHandling,
+        ...userConfig.errorHandling,
+      };
     }
     if (userConfig.monitoring) {
-      result.monitoring = { ...defaultConfig.monitoring, ...userConfig.monitoring };
+      result.monitoring = {
+        ...defaultConfig.monitoring,
+        ...userConfig.monitoring,
+      };
     }
 
     // Merge top-level properties
@@ -245,7 +265,7 @@ export class StreamManagementService implements OnModuleInit, OnModuleDestroy {
     return result;
   }
 
-  async onModuleInit(): Promise<void> {
+  onModuleInit(): void {
     if (!this.config.enabled) {
       this.logger.log('Stream management is disabled');
       return;
@@ -260,7 +280,7 @@ export class StreamManagementService implements OnModuleInit, OnModuleDestroy {
     this.logger.log('Stream Management Service initialized successfully');
   }
 
-  async onModuleDestroy(): Promise<void> {
+  onModuleDestroy(): void {
     this.logger.log('Shutting down Stream Management Service...');
 
     this.shutdown$.next();
@@ -438,7 +458,11 @@ export class StreamManagementService implements OnModuleInit, OnModuleDestroy {
   /**
    * Get stream updates observable
    */
-  getStreamUpdates(): Observable<{ action: 'created' | 'destroyed' | 'error'; streamId: string; details?: unknown }> {
+  getStreamUpdates(): Observable<{
+    action: 'created' | 'destroyed' | 'error';
+    streamId: string;
+    details?: unknown;
+  }> {
     return this.streamUpdates$.asObservable();
   }
 
@@ -451,6 +475,39 @@ export class StreamManagementService implements OnModuleInit, OnModuleDestroy {
 
     stream.subscription.unsubscribe();
     this.logger.debug(`Paused stream: ${streamId}`);
+    return true;
+  }
+
+  /**
+   * Resume a paused stream
+   */
+  resumeStream(streamId: string): boolean {
+    const stream = this.managedStreams.get(streamId);
+    if (!stream || !stream.subscription.closed) return false;
+
+    const newSubscription = stream.source.subscribe({
+      next: () => this.recordStreamActivity(streamId),
+      error: (error) => this.handleStreamError(streamId, error),
+    });
+    (stream as { subscription: Subscription }).subscription = newSubscription;
+
+    this.logger.debug(`Resumed stream: ${streamId}`);
+    return true;
+  }
+
+  /**
+   * Restart a stream
+   */
+  restartStream(streamId: string): boolean {
+    const destroyed = this.destroyManagedStream(streamId);
+    if (!destroyed) return false;
+
+    // Recreate the stream with the same configuration
+    const oldStream = this.managedStreams.get(streamId);
+    if (!oldStream) return false;
+
+    this.createManagedStream(oldStream.name, oldStream.source, oldStream.type, oldStream.config);
+    this.logger.debug(`Restarted stream: ${streamId}`);
     return true;
   }
 
@@ -698,15 +755,15 @@ export class StreamManagementService implements OnModuleInit, OnModuleDestroy {
     const now = Date.now();
 
     let totalBufferSize = 0;
-    let _totalProcessed = 0;
+    //let _totalProcessed = 0;
     let totalDropped = 0;
     let totalBackpressureEvents = 0;
     let maxLatency = 0;
-    let _recentActivity = 0;
+    //let _recentActivity = 0;
 
     streams.forEach((stream) => {
       totalBufferSize += stream.metrics.bufferSize;
-      _totalProcessed += stream.metrics.itemsProcessed;
+      //_totalProcessed += stream.metrics.itemsProcessed;
       totalDropped += stream.metrics.itemsDropped;
       totalBackpressureEvents += stream.metrics.backpressureEvents;
 
@@ -716,7 +773,7 @@ export class StreamManagementService implements OnModuleInit, OnModuleDestroy {
 
       if (now - stream.lastActivityAt < 60000) {
         // Active in last minute
-        _recentActivity++;
+        //_recentActivity++;
       }
     });
 

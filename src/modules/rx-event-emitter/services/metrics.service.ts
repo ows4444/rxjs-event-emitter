@@ -96,7 +96,11 @@ export class MetricsService implements OnModuleInit, OnModuleDestroy {
   };
   private readonly legacyProcessingTimes: number[] = [];
 
-  constructor(@Optional() @Inject(EVENT_EMITTER_OPTIONS) private readonly options: Record<string, unknown> = {}) {
+  constructor(
+    @Optional()
+    @Inject(EVENT_EMITTER_OPTIONS)
+    private readonly options: Record<string, unknown> = {},
+  ) {
     this.config = {
       enabled: true,
       collectionIntervalMs: 5000,
@@ -112,7 +116,7 @@ export class MetricsService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  async onModuleInit(): Promise<void> {
+  onModuleInit(): void {
     if (!this.config.enabled) {
       this.logger.log('Metrics collection is disabled');
       return;
@@ -127,7 +131,7 @@ export class MetricsService implements OnModuleInit, OnModuleDestroy {
     this.logger.log('Metrics Service initialized successfully');
   }
 
-  async onModuleDestroy(): Promise<void> {
+  onModuleDestroy(): void {
     this.logger.log('Shutting down Metrics Service...');
 
     this.shutdown$.next(true);
@@ -366,7 +370,10 @@ export class MetricsService implements OnModuleInit, OnModuleDestroy {
       this.logger.log('HANDLER PERFORMANCE:');
       Object.entries(handlerStats).forEach(([name, stats]) => {
         if (stats && typeof stats === 'object' && 'execution' in stats && 'successRate' in stats) {
-          const handlerStats = stats as { execution: { totalExecutions: number }; successRate: number };
+          const handlerStats = stats as {
+            execution: { totalExecutions: number };
+            successRate: number;
+          };
           this.logger.log(`  ${name}: ${handlerStats.execution.totalExecutions} executions, ${handlerStats.successRate.toFixed(1)}% success rate`);
         }
       });

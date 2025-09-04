@@ -57,7 +57,10 @@ export class InMemoryPersistenceAdapter implements PersistenceAdapter {
    * @deprecated Use query methods instead for better performance
    */
   loadAll(): Event[] {
-    return Array.from(this.events.values()).map((e) => ({ metadata: e.metadata, payload: e.payload }));
+    return Array.from(this.events.values()).map((e) => ({
+      metadata: e.metadata,
+      payload: e.payload,
+    }));
   }
 
   /**

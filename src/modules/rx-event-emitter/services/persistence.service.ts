@@ -6,7 +6,7 @@ export class PersistenceService {
   private readonly logger = new Logger(PersistenceService.name);
   private readonly events = new Map<string, Event & { status: EventStatus }>();
 
-  async save(event: Event, status: EventStatus = EventStatus.PENDING): Promise<void> {
+  save(event: Event, status: EventStatus = EventStatus.PENDING): void {
     try {
       this.events.set(event.metadata.id, { ...event, status });
       this.logger.debug(`Event persisted: ${event.metadata.name} (${event.metadata.id}) with status ${status}`);
@@ -16,7 +16,7 @@ export class PersistenceService {
     }
   }
 
-  async updateStatus(eventId: string, status: EventStatus): Promise<void> {
+  updateStatus(eventId: string, status: EventStatus): void {
     const event = this.events.get(eventId);
     if (event) {
       event.status = status;
@@ -26,19 +26,19 @@ export class PersistenceService {
     }
   }
 
-  async getById(eventId: string): Promise<(Event & { status: EventStatus }) | undefined> {
+  getById(eventId: string): (Event & { status: EventStatus }) | undefined {
     return this.events.get(eventId);
   }
 
-  async getByStatus(status: EventStatus): Promise<(Event & { status: EventStatus })[]> {
+  getByStatus(status: EventStatus): (Event & { status: EventStatus })[] {
     return Array.from(this.events.values()).filter((event) => event.status === status);
   }
 
-  async getUnprocessed(): Promise<(Event & { status: EventStatus })[]> {
+  getUnprocessed(): (Event & { status: EventStatus })[] {
     return this.getByStatus(EventStatus.PENDING);
   }
 
-  async deleteById(eventId: string): Promise<boolean> {
+  deleteById(eventId: string): boolean {
     const deleted = this.events.delete(eventId);
     if (deleted) {
       this.logger.debug(`Event deleted: ${eventId}`);
@@ -46,11 +46,11 @@ export class PersistenceService {
     return deleted;
   }
 
-  async count(): Promise<number> {
+  count(): number {
     return this.events.size;
   }
 
-  async clear(): Promise<void> {
+  clear(): void {
     this.events.clear();
     this.logger.log('All persisted events cleared');
   }
@@ -58,11 +58,11 @@ export class PersistenceService {
   // DLQ-specific methods
   private readonly dlqEntries = new Map<string, DLQEntry>();
 
-  async getDLQEntriesForService(): Promise<DLQEntry[]> {
+  getDLQEntriesForService(): DLQEntry[] {
     return Array.from(this.dlqEntries.values());
   }
 
-  async saveDLQEntry(entry: DLQEntry): Promise<void> {
+  saveDLQEntry(entry: DLQEntry): void {
     try {
       this.dlqEntries.set(entry.event.metadata.id, entry);
       this.logger.debug(`DLQ entry saved: ${entry.event.metadata.id}`);
@@ -72,7 +72,7 @@ export class PersistenceService {
     }
   }
 
-  async saveDLQEntries(entries: DLQEntry[]): Promise<void> {
+  saveDLQEntries(entries: DLQEntry[]): void {
     try {
       for (const entry of entries) {
         this.dlqEntries.set(entry.event.metadata.id, entry);
@@ -84,11 +84,11 @@ export class PersistenceService {
     }
   }
 
-  async getDLQEntry(eventId: string): Promise<DLQEntry | undefined> {
+  getDLQEntry(eventId: string): DLQEntry | undefined {
     return this.dlqEntries.get(eventId);
   }
 
-  async deleteDLQEntry(eventId: string): Promise<boolean> {
+  deleteDLQEntry(eventId: string): boolean {
     const deleted = this.dlqEntries.delete(eventId);
     if (deleted) {
       this.logger.debug(`DLQ entry deleted: ${eventId}`);

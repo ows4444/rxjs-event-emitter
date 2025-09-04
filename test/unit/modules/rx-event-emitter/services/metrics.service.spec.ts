@@ -1218,7 +1218,6 @@ describe('MetricsService', () => {
   });
 
   describe('Simple Working Coverage Tests', () => {
-
     it('should trigger handler performance logging lines 369-370', () => {
       // Record handler executions to generate proper handler stats
       service.recordHandlerExecution('test.handler', 100, true);
@@ -1328,20 +1327,19 @@ describe('MetricsService', () => {
     });
   });
 
-
   describe('Final Coverage Tests', () => {
     it('should cover handler type checking in logSummary (lines 369-370)', () => {
       // Create handler metrics that will trigger the type checking logic
       service.recordHandlerExecution('TestHandler', 100, true);
       service.recordHandlerExecution('TestHandler', 150, true);
       service.recordHandlerExecution('TestHandler', 200, false);
-      
+
       // Force sync to ensure handler metrics are processed
       (service as any).syncSystemMetrics();
-      
+
       const logSpy = jest.spyOn(service['logger'], 'log').mockImplementation();
       service.logSummary();
-      
+
       // Should have covered the handler stats type checking
       expect(logSpy).toHaveBeenCalledWith('=== Comprehensive System Metrics Summary ===');
       logSpy.mockRestore();
@@ -1353,14 +1351,14 @@ describe('MetricsService', () => {
       for (let i = 0; i < 10; i++) {
         service.recordEventFailed(failedEvent, new Error('Test error'));
       }
-      
+
       // Record some successful events but keep error rate high
       const successEvent = { metadata: { id: 'success', name: 'test.event', timestamp: Date.now() }, payload: {} };
       service.recordEventProcessed(successEvent, 100);
-      
+
       const warnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation();
       service.logSummary();
-      
+
       // Should have logged alerts if any exist
       expect(warnSpy).toHaveBeenCalled();
       warnSpy.mockRestore();
@@ -1372,7 +1370,7 @@ describe('MetricsService', () => {
       service.recordEventEmitted(event);
       service.recordEventProcessed(event, 50);
       service.recordHandlerExecution('TestHandler', 100, true);
-      
+
       service.recordDLQMetrics({
         totalEntries: 1,
         successfulReprocessing: 0,
@@ -1383,12 +1381,12 @@ describe('MetricsService', () => {
         permanentFailures: 0,
         lastProcessedAt: Date.now(),
         policyStats: {},
-        healthStatus: 'healthy'
+        healthStatus: 'healthy',
       });
-      
+
       // Force sync to trigger aggregation logic
       (service as any).syncSystemMetrics();
-      
+
       const metrics = service.getCurrentSystemMetrics();
       expect(metrics.system).toBeDefined();
       expect(metrics.events.totalEmitted).toBe(1);
@@ -1401,18 +1399,18 @@ describe('MetricsService', () => {
         ...currentMetrics,
         dlq: {
           ...currentMetrics.dlq,
-          healthStatus: 'critical' as const
-        }
+          healthStatus: 'critical' as const,
+        },
       };
-      
+
       // Set the system metrics directly
       (service as any).systemMetrics$.next(modifiedMetrics);
-      
+
       // Call performHealthCheck directly to trigger lines 619-622
       (service as any).performHealthCheck();
-      
+
       const metrics = service.getCurrentSystemMetrics();
-      
+
       expect(metrics.dlq.healthStatus).toBe('critical');
       expect(metrics.health.status).toBe('critical'); // Should now be critical due to line 622
       expect(metrics.health.alerts).toContain('Dead Letter Queue is critical');
@@ -1421,33 +1419,33 @@ describe('MetricsService', () => {
     it('should cover high error rate detection (lines 671-673)', () => {
       // Create events first (must emit before processing/failing)
       const baseEvent = { metadata: { id: 'base', name: 'test.event', timestamp: Date.now() }, payload: {} };
-      
+
       // Record 100 total events first
       for (let i = 0; i < 100; i++) {
         const event = { metadata: { id: `event-${i}`, name: 'test.event', timestamp: Date.now() }, payload: {} };
         service.recordEventEmitted(event);
       }
-      
+
       // Then fail 10 of them (10% error rate) - should exceed 5% threshold
       for (let i = 0; i < 10; i++) {
         const failedEvent = { metadata: { id: `failed-${i}`, name: 'test.event', timestamp: Date.now() }, payload: {} };
         service.recordEventFailed(failedEvent, new Error('High error rate test'));
       }
-      
-      // Process the rest successfully  
+
+      // Process the rest successfully
       for (let i = 0; i < 90; i++) {
         const successEvent = { metadata: { id: `success-${i}`, name: 'test.event', timestamp: Date.now() }, payload: {} };
         service.recordEventProcessed(successEvent, 50);
       }
-      
+
       // Call performHealthCheck to trigger the error rate check in lines 671-673
       // Note: this will call the performHealthCheck function which checks alertThresholds.errorRate (5%)
       (service as any).performHealthCheck();
-      
+
       const metrics = service.getCurrentSystemMetrics();
       expect(metrics.events.errorRate).toBeGreaterThan(5); // Should be ~10%
       expect(metrics.health.status).toMatch(/degraded|critical/); // Should now be degraded due to error rate
-      expect(metrics.health.alerts.some(alert => alert.includes('High error rate'))).toBe(true);
+      expect(metrics.health.alerts.some((alert) => alert.includes('High error rate'))).toBe(true);
     });
   });
 });

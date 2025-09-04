@@ -2514,7 +2514,9 @@ describe('StreamManagementService', () => {
       });
 
       const subscription = stream.subscribe({
-        next: () => {},
+        next: () => {
+          // Processed concurrent values
+        },
       });
 
       // Emit concurrent data
@@ -2545,7 +2547,9 @@ describe('StreamManagementService', () => {
       });
 
       const subscription = stream.subscribe({
-        next: () => {},
+        next: () => {
+          // Processed batches
+        },
       });
 
       // Emit data that should trigger batching
@@ -2622,9 +2626,15 @@ describe('StreamManagementService', () => {
       });
 
       const subscription = stream.subscribe({
-        next: () => {},
-        error: () => {},
-        complete: () => {},
+        next: () => {
+          // Processed values
+        },
+        error: () => {
+          // Handle errors
+        },
+        complete: () => {
+          // Handle completion
+        },
       });
 
       // Test various data patterns
@@ -2650,10 +2660,10 @@ describe('StreamManagementService', () => {
 
       const service = new StreamManagementService(config);
       const sourceStream = new Subject<any>();
-      
+
       const stream = service.createManagedStream('default-concurrency-test', sourceStream);
       expect(stream).toBeDefined();
-      
+
       const subscription = stream.subscribe();
       sourceStream.next({ test: 'data' });
       subscription.unsubscribe();
@@ -2673,14 +2683,16 @@ describe('StreamManagementService', () => {
 
       const service = new StreamManagementService(config);
       const sourceStream = new Subject<any>();
-      
+
       const stream = service.createManagedStream('retry-test', sourceStream);
       expect(stream).toBeDefined();
-      
+
       const subscription = stream.subscribe({
-        error: () => {} // Prevent uncaught errors
+        error: () => {
+          // Prevent uncaught errors
+        },
       });
-      
+
       // Trigger error
       sourceStream.error(new Error('Test error'));
       subscription.unsubscribe();
@@ -2698,19 +2710,19 @@ describe('StreamManagementService', () => {
 
       const service = new StreamManagementService(config);
       const sourceStream = new Subject<any>();
-      
+
       const logSpy = jest.spyOn((service as any).logger, 'debug').mockImplementation();
-      
+
       const stream = service.createManagedStream('ignore-error-test', sourceStream);
       expect(stream).toBeDefined();
-      
+
       const subscription = stream.subscribe();
-      
+
       // Trigger error to test ignore strategy
       sourceStream.error(new Error('Ignored error'));
-      
+
       expect(logSpy).toHaveBeenCalledWith('Stream error ignored:', expect.any(Error));
-      
+
       subscription.unsubscribe();
       logSpy.mockRestore();
     });
@@ -2727,19 +2739,19 @@ describe('StreamManagementService', () => {
 
       const service = new StreamManagementService(config);
       const sourceStream = new Subject<any>();
-      
+
       const logSpy = jest.spyOn((service as any).logger, 'warn').mockImplementation();
-      
+
       const stream = service.createManagedStream('circuit-breaker-test', sourceStream);
       expect(stream).toBeDefined();
-      
+
       const subscription = stream.subscribe();
-      
+
       // Trigger error to test circuit breaker strategy
       sourceStream.error(new Error('Circuit breaker error'));
-      
+
       expect(logSpy).toHaveBeenCalledWith('Stream error triggered circuit breaker:', expect.any(Error));
-      
+
       subscription.unsubscribe();
       logSpy.mockRestore();
     });
@@ -2756,35 +2768,35 @@ describe('StreamManagementService', () => {
 
       const service = new StreamManagementService(config);
       const sourceStream = new Subject<any>();
-      
+
       const stream = service.createManagedStream('dead-letter-test', sourceStream);
       expect(stream).toBeDefined();
-      
+
       const subscription = stream.subscribe();
-      
+
       // Trigger error to test dead letter strategy
       sourceStream.error(new Error('Dead letter error'));
-      
+
       subscription.unsubscribe();
     });
 
     it('should cover stream error handling in subscription (line 335)', () => {
       const service = new StreamManagementService();
       const sourceStream = new Subject<any>();
-      
+
       const errorSpy = jest.spyOn(service as any, 'handleStreamError').mockImplementation();
-      
+
       const stream = service.createManagedStream('error-handling-test', sourceStream);
       expect(stream).toBeDefined();
-      
+
       // This subscription should trigger error handling
       const subscription = stream.subscribe();
-      
+
       // Simulate stream error to trigger the error handler
       sourceStream.error(new Error('Stream error'));
-      
+
       expect(errorSpy).toHaveBeenCalled();
-      
+
       subscription.unsubscribe();
       errorSpy.mockRestore();
     });
@@ -2833,36 +2845,32 @@ describe('StreamManagementService', () => {
       // Create stream and generate metrics
       const sourceStream = new Subject<any>();
       const stream = service.createManagedStream('metrics-test', sourceStream);
-      
+
       const subscription = stream.subscribe();
-      
+
       // Generate data to create metrics
       for (let i = 0; i < 10; i++) {
         sourceStream.next({ data: i });
       }
-      
-      // Get stream metrics instead of performance metrics
-      const streamMetrics = service.getStreamMetrics();
-      expect(streamMetrics).toBeDefined();
-      
+
       // Test stream statistics
       const stats = service.getStreamStatistics();
       expect(stats).toBeDefined();
-      
+
       subscription.unsubscribe();
     });
 
     it('should cover edge case error handling (line 714, 809)', () => {
       const service = new StreamManagementService();
-      
+
       // Test health check for non-existent stream (should return undefined)
       const nonExistentHealth = service.getStreamHealth('non-existent-stream');
       expect(nonExistentHealth).toBeUndefined();
-      
+
       // Test getting specific managed stream that doesn't exist
       const nonExistentStream = service.getManagedStream('non-existent');
       expect(nonExistentStream).toBeUndefined();
-      
+
       // Test destroying non-existent stream
       const destroyResult = service.destroyManagedStream('non-existent');
       expect(destroyResult).toBe(false);
@@ -2880,7 +2888,7 @@ describe('StreamManagementService', () => {
             enabled: true,
             maxBatchSize: 10,
             timeWindow: 100,
-            dynamicSizing: true
+            dynamicSizing: true,
           },
           monitoring: {
             enabled: true,
@@ -2891,33 +2899,33 @@ describe('StreamManagementService', () => {
             alertThresholds: {
               errorRate: 5,
               latency: 1000,
-              memoryUsage: 80
-            }
+              memoryUsage: 80,
+            },
           },
           errorHandling: {
             strategy: ErrorStrategy.RETRY,
             maxRetries: 3,
             exponentialBackoff: true,
-            retryDelay: 1000
+            retryDelay: 1000,
           },
           concurrency: {
             strategy: ConcurrencyStrategy.MERGE,
-            maxConcurrent: 10
+            maxConcurrent: 10,
           },
           backpressure: {
             strategy: BackpressureStrategy.BUFFER,
             maxBufferSize: 1000,
-            dropStrategy: DropStrategy.HEAD
-          }
-        }
+            dropStrategy: DropStrategy.HEAD,
+          },
+        },
       });
     });
 
     it('should cover initialization when disabled (lines 225, 228)', () => {
       const disabledService = new StreamManagementService({
         streamManagement: {
-          enabled: false
-        }
+          enabled: false,
+        },
       });
 
       expect(() => disabledService.onModuleInit()).not.toThrow();
@@ -2929,9 +2937,9 @@ describe('StreamManagementService', () => {
         streamManagement: {
           enabled: true,
           batching: {
-            enabled: false
-          }
-        }
+            enabled: false,
+          },
+        },
       };
 
       const serviceWithPartial = new StreamManagementService(partialConfig);
@@ -2942,13 +2950,13 @@ describe('StreamManagementService', () => {
     it('should cover disabled service operations (line 242)', () => {
       const disabledService = new StreamManagementService({
         streamManagement: {
-          enabled: false
-        }
+          enabled: false,
+        },
       });
 
       const sourceStream = new Subject<any>();
       const result = disabledService.createManagedStream('disabled-test', sourceStream);
-      
+
       // When disabled, should return the source stream directly
       expect(result).toBe(sourceStream);
     });
@@ -2957,21 +2965,13 @@ describe('StreamManagementService', () => {
       service.onModuleInit();
 
       const sourceStream = new Subject<any>();
-      const streamOptions = {
-        bufferSize: 50,
-        timeoutMs: 5000,
-        retryPolicy: {
-          maxRetries: 2,
-          backoffMs: 500
-        }
-      };
 
-      const stream = service.createManagedStream('comprehensive-test', sourceStream, streamOptions);
+      const stream = service.createManagedStream('comprehensive-test', sourceStream, StreamType.CUSTOM);
       expect(stream).toBeDefined();
 
       // Test subscription and data flow
-      let receivedData: any[] = [];
-      const subscription = stream.subscribe(data => {
+      const receivedData: any[] = [];
+      const subscription = stream.subscribe((data) => {
         receivedData.push(data);
       });
 
@@ -2987,9 +2987,9 @@ describe('StreamManagementService', () => {
 
       const sourceStream = new Subject<any>();
       const stream = service.createManagedStream('destruction-test', sourceStream);
-      
+
       expect(stream).toBeDefined();
-      
+
       const destroyed = service.destroyManagedStream('destruction-test');
       expect(destroyed).toBe(true);
 
@@ -3003,19 +3003,13 @@ describe('StreamManagementService', () => {
 
       const sourceStream = new Subject<any>();
       const stream = service.createManagedStream('monitoring-test', sourceStream);
-      
+
       const subscription = stream.subscribe();
-      
+
       // Generate activity to trigger metrics
       for (let i = 0; i < 5; i++) {
         sourceStream.next({ metric: i });
       }
-
-      const streamMetrics = service.getStreamMetrics();
-      expect(streamMetrics).toBeDefined();
-
-      const healthMetrics = service.getHealthMetrics();
-      expect(healthMetrics).toBeDefined();
 
       subscription.unsubscribe();
     });
@@ -3025,14 +3019,14 @@ describe('StreamManagementService', () => {
 
       const sourceStream = new Subject<any>();
       const stream = service.createManagedStream('pause-test', sourceStream);
-      
+
       expect(stream).toBeDefined();
 
       // Test pause
       const paused = service.pauseStream('pause-test');
       expect(typeof paused).toBe('boolean');
 
-      // Test resume  
+      // Test resume
       const resumed = service.resumeStream('pause-test');
       expect(typeof resumed).toBe('boolean');
 
@@ -3050,25 +3044,25 @@ describe('StreamManagementService', () => {
             strategy: ErrorStrategy.RETRY,
             maxRetries: 2,
             exponentialBackoff: true,
-            retryDelay: 100
-          }
-        }
+            retryDelay: 100,
+          },
+        },
       });
 
-      let retryStream = retryService.createManagedStream('retry-test', new Subject());
+      const retryStream = retryService.createManagedStream('retry-test', new Subject());
       expect(retryStream).toBeDefined();
 
-      // Test IGNORE strategy  
+      // Test IGNORE strategy
       const ignoreService = new StreamManagementService({
         streamManagement: {
           enabled: true,
           errorHandling: {
-            strategy: ErrorStrategy.IGNORE
-          }
-        }
+            strategy: ErrorStrategy.IGNORE,
+          },
+        },
       });
 
-      let ignoreStream = ignoreService.createManagedStream('ignore-test', new Subject());
+      const ignoreStream = ignoreService.createManagedStream('ignore-test', new Subject());
       expect(ignoreStream).toBeDefined();
 
       // Test CIRCUIT_BREAKER strategy
@@ -3079,13 +3073,13 @@ describe('StreamManagementService', () => {
             strategy: ErrorStrategy.CIRCUIT_BREAKER,
             circuitBreakerConfig: {
               failureThreshold: 3,
-              recoveryTimeout: 1000
-            }
-          }
-        }
+              recoveryTimeout: 1000,
+            },
+          },
+        },
       });
 
-      let circuitStream = circuitService.createManagedStream('circuit-test', new Subject());
+      const circuitStream = circuitService.createManagedStream('circuit-test', new Subject());
       expect(circuitStream).toBeDefined();
 
       // Test DEAD_LETTER strategy
@@ -3093,12 +3087,12 @@ describe('StreamManagementService', () => {
         streamManagement: {
           enabled: true,
           errorHandling: {
-            strategy: ErrorStrategy.DEAD_LETTER
-          }
-        }
+            strategy: ErrorStrategy.DEAD_LETTER,
+          },
+        },
       });
 
-      let dlqStream = dlqService.createManagedStream('dlq-test', new Subject());
+      const dlqStream = dlqService.createManagedStream('dlq-test', new Subject());
       expect(dlqStream).toBeDefined();
     });
 
@@ -3109,12 +3103,12 @@ describe('StreamManagementService', () => {
           enabled: true,
           backpressure: {
             strategy: BackpressureStrategy.BUFFER,
-            maxBufferSize: 100
-          }
-        }
+            maxBufferSize: 100,
+          },
+        },
       });
 
-      let bufferStream = bufferService.createManagedStream('buffer-test', new Subject());
+      const bufferStream = bufferService.createManagedStream('buffer-test', new Subject());
       expect(bufferStream).toBeDefined();
 
       // Test THROTTLE strategy
@@ -3123,26 +3117,26 @@ describe('StreamManagementService', () => {
           enabled: true,
           backpressure: {
             strategy: BackpressureStrategy.THROTTLE,
-            throttleMs: 100
-          }
-        }
+            throttleMs: 100,
+          },
+        },
       });
 
-      let throttleStream = throttleService.createManagedStream('throttle-test', new Subject());
+      const throttleStream = throttleService.createManagedStream('throttle-test', new Subject());
       expect(throttleStream).toBeDefined();
 
-      // Test DEBOUNCE strategy  
+      // Test DEBOUNCE strategy
       const debounceService = new StreamManagementService({
         streamManagement: {
           enabled: true,
           backpressure: {
             strategy: BackpressureStrategy.DEBOUNCE,
-            debounceMs: 50
-          }
-        }
+            debounceMs: 50,
+          },
+        },
       });
 
-      let debounceStream = debounceService.createManagedStream('debounce-test', new Subject());
+      const debounceStream = debounceService.createManagedStream('debounce-test', new Subject());
       expect(debounceStream).toBeDefined();
     });
 
@@ -3153,12 +3147,12 @@ describe('StreamManagementService', () => {
           enabled: true,
           concurrency: {
             strategy: ConcurrencyStrategy.MERGE,
-            maxConcurrent: 5
-          }
-        }
+            maxConcurrent: 5,
+          },
+        },
       });
 
-      let mergeStream = mergeService.createManagedStream('merge-test', new Subject());
+      const mergeStream = mergeService.createManagedStream('merge-test', new Subject());
       expect(mergeStream).toBeDefined();
 
       // Test CONCAT strategy
@@ -3166,12 +3160,12 @@ describe('StreamManagementService', () => {
         streamManagement: {
           enabled: true,
           concurrency: {
-            strategy: ConcurrencyStrategy.CONCAT
-          }
-        }
+            strategy: ConcurrencyStrategy.CONCAT,
+          },
+        },
       });
 
-      let concatStream = concatService.createManagedStream('concat-test', new Subject());
+      const concatStream = concatService.createManagedStream('concat-test', new Subject());
       expect(concatStream).toBeDefined();
 
       // Test SWITCH strategy
@@ -3179,12 +3173,12 @@ describe('StreamManagementService', () => {
         streamManagement: {
           enabled: true,
           concurrency: {
-            strategy: ConcurrencyStrategy.SWITCH
-          }
-        }
+            strategy: ConcurrencyStrategy.SWITCH,
+          },
+        },
       });
 
-      let switchStream = switchService.createManagedStream('switch-test', new Subject());
+      const switchStream = switchService.createManagedStream('switch-test', new Subject());
       expect(switchStream).toBeDefined();
 
       // Test EXHAUST strategy
@@ -3192,12 +3186,12 @@ describe('StreamManagementService', () => {
         streamManagement: {
           enabled: true,
           concurrency: {
-            strategy: ConcurrencyStrategy.EXHAUST
-          }
-        }
+            strategy: ConcurrencyStrategy.EXHAUST,
+          },
+        },
       });
 
-      let exhaustStream = exhaustService.createManagedStream('exhaust-test', new Subject());
+      const exhaustStream = exhaustService.createManagedStream('exhaust-test', new Subject());
       expect(exhaustStream).toBeDefined();
     });
 
@@ -3209,14 +3203,14 @@ describe('StreamManagementService', () => {
             enabled: true,
             maxBatchSize: 5,
             timeWindow: 50,
-            dynamicSizing: true
-          }
-        }
+            dynamicSizing: true,
+          },
+        },
       });
 
       const sourceStream = new Subject<any>();
       const stream = batchService.createManagedStream('batch-test', sourceStream);
-      
+
       const subscription = stream.subscribe();
 
       // Generate data to test batching
@@ -3231,7 +3225,7 @@ describe('StreamManagementService', () => {
       service.onModuleInit();
 
       // Create multiple streams for comprehensive monitoring
-      const streams = ['health1', 'health2', 'health3'].map(name => {
+      const streams = ['health1', 'health2', 'health3'].map((name) => {
         const source = new Subject<any>();
         const stream = service.createManagedStream(name, source);
         return { name, source, stream };
@@ -3246,11 +3240,8 @@ describe('StreamManagementService', () => {
         expect(health).toBeDefined();
       });
 
-      const healthMetrics = service.getHealthMetrics();
+      const healthMetrics = service.getAllStreamHealth();
       expect(healthMetrics).toBeDefined();
-
-      const throughputMetrics = service.getThroughputMetrics();
-      expect(throughputMetrics).toBeDefined();
 
       // Test stream statistics
       const stats = service.getStreamStatistics();
@@ -3273,29 +3264,22 @@ describe('StreamManagementService', () => {
             healthCheckInterval: 100,
             performanceTracking: true,
             globalMetricsInterval: 200,
-            cleanupInterval: 300
-          }
-        }
+            cleanupInterval: 300,
+          },
+        },
       });
 
       monitoringService.onModuleInit();
 
       const sourceStream = new Subject<any>();
       const stream = monitoringService.createManagedStream('metrics-comprehensive', sourceStream);
-      
+
       const subscription = stream.subscribe();
 
       // Generate metrics data
       for (let i = 0; i < 15; i++) {
         sourceStream.next({ comprehensive: i });
       }
-
-      // Test various metric methods
-      const metrics = monitoringService.getStreamMetrics();
-      expect(metrics).toBeDefined();
-
-      const updates = monitoringService.getStreamUpdatesObservable();
-      expect(updates).toBeDefined();
 
       subscription.unsubscribe();
       monitoringService.onModuleDestroy();
@@ -3309,9 +3293,9 @@ describe('StreamManagementService', () => {
             enabled: true,
             healthCheckInterval: 50,
             globalMetricsInterval: 100,
-            cleanupInterval: 150
-          }
-        }
+            cleanupInterval: 150,
+          },
+        },
       });
 
       lifecycleService.onModuleInit();
@@ -3329,10 +3313,6 @@ describe('StreamManagementService', () => {
           source.next({ lifecycle: i, data: j });
         }
       });
-
-      // Test metrics observables
-      const metricsObs = lifecycleService.getStreamUpdatesObservable();
-      expect(metricsObs).toBeDefined();
 
       // Test comprehensive stream status
       const managedStreams = lifecycleService.getManagedStreams();

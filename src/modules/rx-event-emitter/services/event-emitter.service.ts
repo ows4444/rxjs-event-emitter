@@ -2,7 +2,7 @@ import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Inject, Optional } f
 import { BehaviorSubject, Subject, EMPTY, Observable, Subscription } from 'rxjs';
 import { bufferTime, filter, groupBy, mergeMap, catchError, share, takeUntil, tap } from 'rxjs/operators';
 import { v4 as uuidv4 } from 'uuid';
-import { Event, EmitOptions, EVENT_EMITTER_OPTIONS, EventStatus, RegisteredHandler } from '../interfaces';
+import { Event, EmitOptions, EVENT_EMITTER_OPTIONS, EventStatus, RegisteredHandler, BackpressureStrategy } from '../interfaces';
 import { MetricsService } from './metrics.service';
 import { PersistenceService } from './persistence.service';
 import { DeadLetterQueueService } from './dead-letter-queue.service';
@@ -29,7 +29,7 @@ export interface EventEmitterOptions {
   };
   streamManagement?: {
     enabled?: boolean;
-    backpressureStrategy?: string;
+    backpressureStrategy?: BackpressureStrategy;
   };
 }
 
@@ -57,12 +57,16 @@ export class EventEmitterService implements OnModuleInit, OnModuleDestroy {
   };
 
   constructor(
-    @Optional() @Inject(EVENT_EMITTER_OPTIONS) private readonly options: EventEmitterOptions = {},
+    @Optional()
+    @Inject(EVENT_EMITTER_OPTIONS)
+    private readonly options: EventEmitterOptions = {},
     @Optional() private readonly metricsService?: MetricsService,
     @Optional() private readonly persistenceService?: PersistenceService,
     @Optional() private readonly dlqService?: DeadLetterQueueService,
-    @Optional() private readonly handlerExecutionService?: HandlerExecutionService,
-    @Optional() private readonly streamManagementService?: StreamManagementService,
+    @Optional()
+    private readonly handlerExecutionService?: HandlerExecutionService,
+    @Optional()
+    private readonly streamManagementService?: StreamManagementService,
     @Optional() private readonly handlerPoolService?: HandlerPoolService,
   ) {
     this.options = { ...this.defaultOptions, ...this.options };
@@ -80,7 +84,7 @@ export class EventEmitterService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async onModuleInit(): Promise<void> {
+  onModuleInit(): void {
     this.logger.log('Initializing Enhanced EventEmitterService ...');
 
     if (this.advancedFeaturesEnabled) {
@@ -195,7 +199,6 @@ export class EventEmitterService implements OnModuleInit, OnModuleDestroy {
 
         this.logger.debug(`Handler executed successfully for event: ${event.metadata.name}`);
       } catch (error: unknown) {
-        const _executionTime = Date.now() - startTime;
         this.logger.error(`Handler failed for event ${event.metadata.name}:`, error instanceof Error ? error.message : String(error));
 
         // Record failed execution metrics
@@ -205,7 +208,7 @@ export class EventEmitterService implements OnModuleInit, OnModuleDestroy {
 
         // Send to dead letter queue if available
         if (this.advancedFeaturesEnabled && this.dlqService && this.options.enableDeadLetterQueue) {
-          await this.dlqService.addEntry(event, error as Error);
+          this.dlqService.addEntry(event, error as Error);
           this.logger.debug(`Event ${event.metadata.id} sent to dead letter queue`);
         } else if (this.options.enableDeadLetterQueue) {
           this.logger.warn(`Event ${event.metadata.id} should be sent to DLQ but service not available`);
@@ -245,7 +248,7 @@ export class EventEmitterService implements OnModuleInit, OnModuleDestroy {
         this.logger.debug(`Event emitted: ${eventName} (${event.metadata.id})`);
       } catch (error) {
         this.logger.error(`Failed to emit event ${eventName}:`, error);
-        reject(error);
+        reject(error as Error);
       }
     });
   }
@@ -339,7 +342,7 @@ export class EventEmitterService implements OnModuleInit, OnModuleDestroy {
 
     // Persist event if persistence is enabled
     if (this.advancedFeaturesEnabled && this.persistenceService && this.options.enablePersistence) {
-      await this.persistenceService.save(event, EventStatus.PENDING);
+      this.persistenceService.save(event, EventStatus.PENDING);
     }
 
     return this.emit(eventName, payload, options);

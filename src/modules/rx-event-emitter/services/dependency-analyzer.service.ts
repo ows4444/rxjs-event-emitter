@@ -48,7 +48,9 @@ export class DependencyAnalyzerService implements OnModuleInit {
   constructor(
     private readonly discoveryService: DiscoveryService,
     private readonly moduleRef: ModuleRef,
-    @Optional() @Inject(EVENT_EMITTER_OPTIONS) private readonly options: Record<string, unknown> = {},
+    @Optional()
+    @Inject(EVENT_EMITTER_OPTIONS)
+    private readonly options: Record<string, unknown> = {},
   ) {
     this.config = {
       enabled: true,
@@ -65,7 +67,7 @@ export class DependencyAnalyzerService implements OnModuleInit {
     };
   }
 
-  async onModuleInit(): Promise<void> {
+  onModuleInit(): void {
     if (!this.config.enabled) {
       this.logger.log('Dependency analysis is disabled');
       return;
@@ -74,7 +76,7 @@ export class DependencyAnalyzerService implements OnModuleInit {
     this.logger.log('Initializing Dependency Analyzer Service...');
 
     if (this.config.autoDetection) {
-      await this.performInitialAnalysis();
+      this.performInitialAnalysis();
     }
 
     this.logger.log('Dependency Analyzer Service initialized successfully');
@@ -221,7 +223,7 @@ export class DependencyAnalyzerService implements OnModuleInit {
         visit(handler);
       }
       return result;
-    } catch (_error) {
+    } catch {
       this.logger.warn('Cannot determine execution order due to circular dependencies');
       return handlers; // Return original order as fallback
     }
@@ -288,7 +290,11 @@ export class DependencyAnalyzerService implements OnModuleInit {
   /**
    * Validate dependency configuration
    */
-  validateDependencies(): { valid: boolean; errors: string[]; warnings: string[] } {
+  validateDependencies(): {
+    valid: boolean;
+    errors: string[];
+    warnings: string[];
+  } {
     const errors: string[] = [];
     const warnings: string[] = [];
 
@@ -351,7 +357,7 @@ export class DependencyAnalyzerService implements OnModuleInit {
 
   // Private methods
 
-  private async performInitialAnalysis(): Promise<void> {
+  private performInitialAnalysis(): void {
     // This would analyze the actual handler metadata for dependency hints
     // For now, we'll just initialize the analysis
     this.updateAnalysisResult();

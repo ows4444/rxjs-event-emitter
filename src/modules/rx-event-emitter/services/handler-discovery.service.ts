@@ -1,9 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { DiscoveryService, MetadataScanner, Reflector } from '@nestjs/core';
 import { InstanceWrapper } from '@nestjs/core/injector/instance-wrapper';
-import { EVENT_HANDLER_METADATA, EVENT_HANDLER_OPTIONS } from '../interfaces';
+import { EVENT_HANDLER_METADATA } from '../interfaces';
 import { EventEmitterService } from './event-emitter.service';
-import type { HandlerOptions } from '../interfaces';
 
 @Injectable()
 export class HandlerDiscoveryService {
@@ -21,7 +20,7 @@ export class HandlerDiscoveryService {
     const controllers = this.discoveryService.getControllers();
 
     [...providers, ...controllers].forEach((wrapper: InstanceWrapper) => {
-      const { instance } = wrapper;
+      const { instance } = wrapper as { instance: unknown };
       if (!instance || typeof instance !== 'object') {
         return;
       }
@@ -30,10 +29,10 @@ export class HandlerDiscoveryService {
     });
   }
 
-  private scanForHandlers(instance: unknown): void {
-    const prototype = Object.getPrototypeOf(instance);
+  private scanForHandlers(instance: object): void {
+    const prototype = Object.getPrototypeOf(instance) as object;
 
-    this.metadataScanner.scanFromPrototype(instance as Record<string, unknown>, prototype as object, (methodName: string) =>
+    this.metadataScanner.scanFromPrototype(instance as Record<string, unknown>, prototype, (methodName: string) =>
       this.registerHandlerIfDecorated(instance as Record<string, unknown>, methodName),
     );
   }
@@ -46,7 +45,11 @@ export class HandlerDiscoveryService {
     }
 
     // Handler options available for future use
-    const _handlerOptions = this.reflector.get<HandlerOptions>(EVENT_HANDLER_OPTIONS, instance[methodName] as (...args: unknown[]) => unknown) || {};
+    // const _handlerOptions =
+    //   this.reflector.get<HandlerOptions>(
+    //     EVENT_HANDLER_OPTIONS,
+    //     instance[methodName] as (...args: unknown[]) => unknown,
+    //   ) || {};
 
     const handler = async (event: unknown) => {
       try {

@@ -22,7 +22,11 @@ import { IsolationStrategy } from '../interfaces/core.interfaces';
  */
 class Pool implements HandlerPool {
   private readonly activeExecutions = new Map<string, Promise<unknown>>();
-  private readonly taskQueue: Array<{ task: () => Promise<unknown>; resolve: (value: unknown) => void; reject: (error: unknown) => void }> = [];
+  private readonly taskQueue: Array<{
+    task: () => Promise<unknown>;
+    resolve: (value: unknown) => void;
+    reject: (error: unknown) => void;
+  }> = [];
   private readonly metrics$: BehaviorSubject<HandlerPoolMetrics>;
   private readonly circuitBreaker = {
     state: CircuitBreakerState.CLOSED,
@@ -88,7 +92,11 @@ class Pool implements HandlerPool {
       }
 
       return new Promise<T>((resolve, reject) => {
-        this.taskQueue.push({ task: task as () => Promise<unknown>, resolve, reject });
+        this.taskQueue.push({
+          task: task as () => Promise<unknown>,
+          resolve,
+          reject,
+        });
         this.updateMetrics();
       });
     }
@@ -236,9 +244,13 @@ export class HandlerPoolService implements OnModuleInit, OnModuleDestroy {
 
   private metricsUpdateTimer?: NodeJS.Timeout;
 
-  constructor(@Optional() @Inject(EVENT_EMITTER_OPTIONS) private readonly options: Record<string, unknown> = {}) {}
+  constructor(
+    @Optional()
+    @Inject(EVENT_EMITTER_OPTIONS)
+    private readonly options: Record<string, unknown> = {},
+  ) {}
 
-  async onModuleInit(): Promise<void> {
+  onModuleInit(): void {
     this.logger.log('Initializing Handler Pool Service...');
     this.startMetricsCollection();
     this.logger.log('Handler Pool Service initialized successfully');
@@ -398,16 +410,21 @@ export class HandlerPoolService implements OnModuleInit, OnModuleDestroy {
     const averageUtilization = pools.length > 0 ? totalUtilization / pools.length : 0;
 
     // Convert poolMetrics to match expected interface
-    const convertedPoolMetrics = new Map();
+    const convertedPoolMetrics = new Map<string, PoolMetrics>();
     poolMetrics.forEach((metrics, poolName) => {
       convertedPoolMetrics.set(poolName, {
         utilization: metrics.utilization,
-        throughput: metrics.averageExecutionTime ? 1000 / metrics.averageExecutionTime : 0,
-        errorRate: 1 - metrics.successRate,
-        averageWaitTime: 0, // Not available in current metrics
-        queueDepth: metrics.queuedTasks,
-        healthScore: metrics.successRate,
-        efficiency: metrics.utilization,
+        activeExecutions: metrics.activeExecutions,
+        queuedTasks: metrics.queuedTasks,
+        droppedTasks: metrics.droppedTasks,
+        completedTasks: metrics.completedTasks,
+        failedTasks: metrics.failedTasks,
+        name: metrics.name,
+        averageExecutionTime: metrics.averageExecutionTime,
+        maxExecutionTime: metrics.maxExecutionTime,
+        memoryUsage: metrics.memoryUsage,
+        lastActivityAt: metrics.lastActivityAt,
+        successRate: metrics.successRate,
       });
     });
 

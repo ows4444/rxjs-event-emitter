@@ -1324,7 +1324,7 @@ describe('HandlerExecutionService', () => {
       } as Event;
 
       await service.executeHandler(handler, eventWithoutCorrelation);
-      
+
       // Verify handler was called (which means correlationId was generated successfully)
       expect(handler.handler).toHaveBeenCalled();
     });
@@ -1340,7 +1340,7 @@ describe('HandlerExecutionService', () => {
           retryable: false,
         },
       });
-      
+
       const event = createMockEvent();
 
       // This should trigger error handling
@@ -1356,15 +1356,10 @@ describe('HandlerExecutionService', () => {
           enabled: true,
           circuitBreakerThreshold: 2,
           circuitBreakerTimeout: 100,
-        }
+        },
       };
 
-      const circuitService = new HandlerExecutionService(
-        mockHandlerPoolService as any,
-        mockMetricsService as any,
-        mockDLQService as any,
-        circuitConfig,
-      );
+      const circuitService = new HandlerExecutionService(mockHandlerPoolService as any, mockMetricsService as any, mockDLQService as any, circuitConfig);
 
       const failingHandler = createMockHandler({
         handler: jest.fn().mockRejectedValue(new Error('Failure')),
@@ -1375,7 +1370,7 @@ describe('HandlerExecutionService', () => {
       await expect(circuitService.executeHandler(failingHandler, event)).rejects.toThrow();
       await expect(circuitService.executeHandler(failingHandler, event)).rejects.toThrow();
       await expect(circuitService.executeHandler(failingHandler, event)).rejects.toThrow();
-      
+
       // Circuit should now be open
       await expect(circuitService.executeHandler(failingHandler, event)).rejects.toThrow();
     });
@@ -1391,7 +1386,7 @@ describe('HandlerExecutionService', () => {
         },
         handler: jest.fn().mockRejectedValue(new Error('Persistent failure')),
       });
-      
+
       const event = createMockEvent();
 
       const result = await service.executeHandler(failingHandler, event);
@@ -1409,14 +1404,14 @@ describe('HandlerExecutionService', () => {
           retryable: true,
         },
       });
-      
+
       const event = createMockEvent();
 
       // Mock pool service to return execution result
       mockHandlerPoolService.executeInPool.mockResolvedValue('Pool result');
 
       const result = await service.executeHandler(poolHandler, event);
-      
+
       expect(mockHandlerPoolService.executeInPool).toHaveBeenCalled();
     });
 
@@ -1434,14 +1429,14 @@ describe('HandlerExecutionService', () => {
         consecutiveFailures: 1,
         consecutiveSuccesses: 0,
         errorDistribution: {},
-        circuitBreakerState: 'closed'
+        circuitBreakerState: 'closed',
       });
 
       const cleanupSpy = jest.spyOn(service as any, 'cleanupOldStats');
-      
+
       // Call cleanup directly
       (service as any).cleanupOldStats();
-      
+
       // Should have cleaned up old stats
       expect(cleanupSpy).toHaveBeenCalled();
       cleanupSpy.mockRestore();

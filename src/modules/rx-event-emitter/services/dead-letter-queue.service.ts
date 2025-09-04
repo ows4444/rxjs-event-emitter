@@ -88,7 +88,9 @@ export class DeadLetterQueueService implements OnModuleInit, OnModuleDestroy {
   private autoRetryTimer?: NodeJS.Timeout;
 
   constructor(
-    @Optional() @Inject(EVENT_EMITTER_OPTIONS) private readonly options: Record<string, unknown> = {},
+    @Optional()
+    @Inject(EVENT_EMITTER_OPTIONS)
+    private readonly options: Record<string, unknown> = {},
     @Optional() private readonly eventEmitterService?: EventEmitterService,
     @Optional() private readonly persistenceService?: PersistenceService,
     @Optional() private readonly metricsService?: MetricsService,
@@ -108,7 +110,7 @@ export class DeadLetterQueueService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  async onModuleInit(): Promise<void> {
+  onModuleInit(): void {
     if (!this.config.enabled) {
       this.logger.log('Dead Letter Queue is disabled');
       return;
@@ -121,13 +123,13 @@ export class DeadLetterQueueService implements OnModuleInit, OnModuleDestroy {
     this.startAutoRetry();
 
     if (this.config.persistence.enabled) {
-      await this.loadPersistedEntries();
+      this.loadPersistedEntries();
     }
 
     this.logger.log('Dead Letter Queue Service initialized successfully');
   }
 
-  async onModuleDestroy(): Promise<void> {
+  onModuleDestroy(): void {
     this.logger.log('Shutting down Dead Letter Queue Service...');
 
     this.stopAutoRetry();
@@ -138,7 +140,7 @@ export class DeadLetterQueueService implements OnModuleInit, OnModuleDestroy {
     this.subscriptions.clear();
 
     if (this.config.persistence.enabled) {
-      await this.persistAllEntries();
+      this.persistAllEntries();
     }
 
     this.logger.log('Dead Letter Queue Service shutdown completed');
@@ -174,7 +176,7 @@ export class DeadLetterQueueService implements OnModuleInit, OnModuleDestroy {
     this.subscriptions.add(subscription);
   }
 
-  private async processNewEntry(entry: DLQEntry): Promise<void> {
+  private processNewEntry(entry: DLQEntry): void {
     try {
       if (this.queue.size >= this.config.maxEntries) {
         this.logger.warn('DLQ at capacity, dropping oldest entry');
@@ -185,7 +187,7 @@ export class DeadLetterQueueService implements OnModuleInit, OnModuleDestroy {
       this.updateMetrics();
 
       if (this.config.persistence.enabled) {
-        await this.persistEntry(entry);
+        this.persistEntry(entry);
       }
 
       this.logger.debug(`Added entry to DLQ: ${entry.event.metadata.name} (${entry.event.metadata.id})`);
@@ -206,13 +208,16 @@ export class DeadLetterQueueService implements OnModuleInit, OnModuleDestroy {
       await this.eventEmitterService.emit(entry.event.metadata.name, entry.event.payload, {
         correlationId: entry.event.metadata.correlationId,
         causationId: entry.event.metadata.causationId,
-        headers: { ...entry.event.metadata.headers, retryAttempt: entry.attempts + 1 },
+        headers: {
+          ...entry.event.metadata.headers,
+          retryAttempt: entry.attempts + 1,
+        },
       });
 
       this.handleRetrySuccess(entry);
       this.logger.debug(`Successfully reprocessed event: ${entry.event.metadata.id}`);
     } catch (error) {
-      await this.handleRetryFailure(entry, error as Error);
+      this.handleRetryFailure(entry, error as Error);
     } finally {
       this.processingEntries.delete(eventId);
     }
@@ -224,7 +229,7 @@ export class DeadLetterQueueService implements OnModuleInit, OnModuleDestroy {
     this.updateMetrics();
   }
 
-  private async handleRetryFailure(entry: DLQEntry, error: Error): Promise<void> {
+  private handleRetryFailure(entry: DLQEntry, error: Error): void {
     const policy = this.getRetryPolicy(entry.retryPolicy || this.config.defaultRetryPolicy);
     const shouldRetry = policy.retryConditions.some((condition) => condition.shouldRetry(error, entry.attempts + 1));
 
@@ -353,11 +358,11 @@ export class DeadLetterQueueService implements OnModuleInit, OnModuleDestroy {
     return 'critical';
   }
 
-  private async loadPersistedEntries(): Promise<void> {
+  private loadPersistedEntries(): void {
     if (!this.persistenceService || typeof this.persistenceService.getDLQEntriesForService !== 'function') return;
 
     try {
-      const persistedEntries = await this.persistenceService.getDLQEntriesForService();
+      const persistedEntries = this.persistenceService.getDLQEntriesForService();
       if (Array.isArray(persistedEntries)) {
         persistedEntries.forEach((entry: unknown) => {
           if (entry && typeof entry === 'object' && 'event' in entry) {
@@ -372,23 +377,23 @@ export class DeadLetterQueueService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async persistEntry(entry: DLQEntry): Promise<void> {
+  private persistEntry(entry: DLQEntry): void {
     if (!this.persistenceService || typeof this.persistenceService.saveDLQEntry !== 'function') return;
 
     try {
-      await this.persistenceService.saveDLQEntry(entry);
+      this.persistenceService.saveDLQEntry(entry);
     } catch (error) {
       this.logger.error('Failed to persist DLQ entry:', error instanceof Error ? error.message : String(error));
     }
   }
 
-  private async persistAllEntries(): Promise<void> {
+  private persistAllEntries(): void {
     if (!this.persistenceService || typeof this.persistenceService.saveDLQEntries !== 'function') return;
 
     try {
       const entries = Array.from(this.queue.values());
 
-      await this.persistenceService.saveDLQEntries(entries);
+      this.persistenceService.saveDLQEntries(entries);
       this.logger.log(`Persisted ${entries.length} DLQ entries`);
     } catch (error) {
       this.logger.error('Failed to persist DLQ entries:', error instanceof Error ? error.message : String(error));
@@ -397,7 +402,7 @@ export class DeadLetterQueueService implements OnModuleInit, OnModuleDestroy {
 
   // Public API methods
 
-  async addEntry(event: Event, error: Error, retryPolicy?: string): Promise<void> {
+  addEntry(event: Event, error: Error, retryPolicy?: string): void {
     const entry: DLQEntry = {
       event,
       error,
@@ -414,7 +419,7 @@ export class DeadLetterQueueService implements OnModuleInit, OnModuleDestroy {
     this.dlqEvents$.next(entry);
   }
 
-  async processNext(): Promise<boolean> {
+  processNext(): boolean {
     const entries = Array.from(this.queue.values())
       .filter((e) => !e.isScheduled && !e.metadata?.permanentFailure)
       .sort((a, b) => a.timestamp - b.timestamp);
@@ -431,7 +436,7 @@ export class DeadLetterQueueService implements OnModuleInit, OnModuleDestroy {
     return this.metrics$.value;
   }
 
-  async getEntries(limit = 100, offset = 0): Promise<DLQEntry[]> {
+  getEntries(limit = 100, offset = 0): DLQEntry[] {
     const entries = Array.from(this.queue.values())
       .sort((a, b) => b.timestamp - a.timestamp)
       .slice(offset, offset + limit);
@@ -439,11 +444,11 @@ export class DeadLetterQueueService implements OnModuleInit, OnModuleDestroy {
     return entries;
   }
 
-  async getEntry(eventId: string): Promise<DLQEntry | null> {
+  getEntry(eventId: string): DLQEntry | null {
     return this.queue.get(eventId) || null;
   }
 
-  async removeEntry(eventId: string): Promise<boolean> {
+  removeEntry(eventId: string): boolean {
     const removed = this.queue.delete(eventId);
     if (removed) {
       this.updateMetrics();
@@ -451,7 +456,7 @@ export class DeadLetterQueueService implements OnModuleInit, OnModuleDestroy {
     return removed;
   }
 
-  async clear(): Promise<void> {
+  clear(): void {
     this.queue.clear();
     this.processingEntries.clear();
     this.updateMetrics();
@@ -464,9 +469,11 @@ export class DeadLetterQueueService implements OnModuleInit, OnModuleDestroy {
     }
 
     this.autoRetryTimer = setInterval(() => {
-      this.processNext().catch((error) => {
+      try {
+        this.processNext();
+      } catch (error) {
         this.logger.error('Auto-retry processing failed:', error);
-      });
+      }
     }, this.config.autoRetryIntervalMs);
 
     this.logger.debug('Auto-retry processing started');

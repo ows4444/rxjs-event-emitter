@@ -115,7 +115,7 @@ export class EventEmitterModule implements OnModuleInit {
     private readonly dependencyAnalyzer: DependencyAnalyzerService,
   ) {}
 
-  async onModuleInit(): Promise<void> {
+  onModuleInit(): void {
     this.logger.log('Initializing Enhanced EventEmitter Module ...');
 
     try {
