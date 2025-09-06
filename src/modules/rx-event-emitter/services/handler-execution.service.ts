@@ -16,7 +16,7 @@ import {
   EVENT_EMITTER_OPTIONS,
   RegisteredHandler,
 } from '../interfaces';
-import type { AdvancedEventEmitterOptions } from '../interfaces/configuration.interfaces';
+import type { EventEmitterOptions } from '../interfaces/configuration.interfaces';
 import { HandlerPoolService } from './handler-pool.service';
 import { MetricsService } from './metrics.service';
 import { DeadLetterQueueService } from './dead-letter-queue.service';
@@ -128,7 +128,7 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
     @Optional() private readonly dlqService?: DeadLetterQueueService,
     @Optional()
     @Inject(EVENT_EMITTER_OPTIONS)
-    private readonly options: AdvancedEventEmitterOptions = {},
+    private readonly options: EventEmitterOptions = {},
   ) {
     this.config = {
       enabled: this.options.handlerExecution?.enabled ?? true,
@@ -624,6 +624,13 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
     return `${instanceName}.${methodName}@${handler.metadata.eventName}`;
   }
 
+  private startPeriodicCleanup(): void {
+    this.cleanupInterval = setInterval(() => {
+      this.cleanupOldStats();
+      this.cleanupRateLimiters();
+    }, 300000); // Every 5 minutes
+  }
+
   private setupExecutionMonitoring(): void {
     const monitoringInterval = setInterval(() => {
       const now = Date.now();
@@ -638,13 +645,6 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
 
     // Clean up on shutdown
     this.shutdown$.subscribe(() => clearInterval(monitoringInterval));
-  }
-
-  private startPeriodicCleanup(): void {
-    this.cleanupInterval = setInterval(() => {
-      this.cleanupOldStats();
-      this.cleanupRateLimiters();
-    }, 300000); // Every 5 minutes
   }
 
   private cleanupOldStats(): void {

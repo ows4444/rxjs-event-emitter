@@ -236,7 +236,6 @@ export class EventEmitterService implements OnModuleInit, OnModuleDestroy {
           causationId: options.causationId,
           version: 1,
           priority: options.priority,
-          tenantId: options.tenantId,
           headers: options.headers,
         },
       };
@@ -256,6 +255,7 @@ export class EventEmitterService implements OnModuleInit, OnModuleDestroy {
   on(eventName: string, handler: (event: Event) => Promise<void>): void {
     // Create a basic RegisteredHandler for backward compatibility
     const handlerId = `anon_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
     const registeredHandler: RegisteredHandler = {
       eventName,
       handler,
@@ -359,7 +359,6 @@ export class EventEmitterService implements OnModuleInit, OnModuleDestroy {
         causationId: options.causationId,
         version: 1,
         priority: options.priority,
-        tenantId: options.tenantId,
         headers: options.headers,
       },
     };

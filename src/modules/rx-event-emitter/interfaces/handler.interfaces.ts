@@ -55,7 +55,7 @@ export interface HandlerOptions {
   /** Event filter function */
   filter?: <TPayload>(event: Event<TPayload>) => boolean;
   /** Event transformation function */
-  transform?: <TPayload>(event: Event<TPayload>) => Observable<Event<TPayload>>;
+  transform?: <TPayload>(event: Event<TPayload>) => Event<TPayload>;
   /** Handler timeout in milliseconds */
   timeout?: number;
   /** Number of retry attempts on failure */

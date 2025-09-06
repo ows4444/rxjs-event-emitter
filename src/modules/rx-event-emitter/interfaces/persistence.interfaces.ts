@@ -356,9 +356,6 @@ export interface EventQuery {
   /** Include event payload in results */
   readonly includePayload?: boolean;
 
-  /** Filter by tenant ID */
-  readonly tenantId?: string;
-
   /** Filter by event priority */
   readonly priority?: number | readonly number[];
 

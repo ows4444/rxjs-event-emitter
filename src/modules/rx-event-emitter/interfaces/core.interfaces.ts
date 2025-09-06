@@ -46,8 +46,6 @@ export interface EventMetadata {
   readonly headers?: Readonly<Record<string, unknown>>;
   /** Event priority */
   readonly priority?: EventPriority;
-  /** Tenant identifier */
-  readonly tenantId?: string;
   /** Processing status */
   readonly status?: EventStatus;
 }
@@ -78,8 +76,6 @@ export interface EmitOptions {
   timeout?: number;
   /** Whether the event can be retried on failure */
   retryable?: boolean;
-  /** Tenant identifier */
-  tenantId?: string;
 }
 
 /**

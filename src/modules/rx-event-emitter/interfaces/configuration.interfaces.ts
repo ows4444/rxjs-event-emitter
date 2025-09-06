@@ -360,29 +360,9 @@ export interface MonitoringConfig {
 }
 
 /**
- * Multi-tenant isolation configuration
+ * Main configuration for the event emitter
  */
-export interface TenantIsolationConfig {
-  /** Enable tenant isolation */
-  enabled: boolean;
-  /** Tenant ID field name */
-  tenantIdField?: string;
-  /** Isolation level */
-  isolationLevel?: 'strict' | 'moderate' | 'shared';
-  /** Default tenant ID */
-  defaultTenant?: string;
-  /** Allow cross-tenant event processing */
-  allowCrossTenant?: boolean;
-  /** Tenant validation function */
-  tenantValidation?: (tenantId: string) => boolean;
-  /** Tenant-specific configurations */
-  tenantConfigs?: Readonly<Record<string, Partial<AdvancedEventEmitterOptions>>>;
-}
-
-/**
- * Comprehensive configuration for the event emitter (advanced features)
- */
-export interface AdvancedEventEmitterOptions {
+export interface EventEmitterOptions {
   /** Persistence configuration */
   persistence?: PersistenceConfig;
   /** Dead letter queue configuration */
@@ -401,8 +381,6 @@ export interface AdvancedEventEmitterOptions {
   handlerDiscovery?: HandlerDiscoveryConfig;
   /** Validation configuration */
   validation?: ValidationConfig;
-  /** Tenant isolation configuration */
-  tenantIsolation?: TenantIsolationConfig;
   /** Experimental features */
   experimental?: {
     /** Enable stream optimization */
@@ -434,7 +412,7 @@ export interface AdvancedEventEmitterOptions {
 /**
  * NestJS module configuration
  */
-export interface ModuleConfig extends AdvancedEventEmitterOptions {
+export interface ModuleConfig extends EventEmitterOptions {
   /** Make module global */
   global?: boolean;
   /** Module imports */
@@ -464,7 +442,7 @@ export interface ConfigurationValidator {
   /**
    * Validate event emitter options
    */
-  validateOptions(options: AdvancedEventEmitterOptions): ConfigurationValidationResult;
+  validateOptions(options: EventEmitterOptions): ConfigurationValidationResult;
 
   /**
    * Validate handler options
