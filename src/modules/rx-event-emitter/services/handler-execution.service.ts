@@ -298,14 +298,26 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
           throw new Error(`Invalid handler: handler function is not defined for ${this.generateHandlerId(handler)}`);
         }
 
+        // Apply transform function if provided in handler options
+        let transformedEvent = event;
+        if (handler.options.transform && typeof handler.options.transform === 'function') {
+          try {
+            transformedEvent = handler.options.transform(event);
+          } catch (transformError) {
+            this.logger.warn(`Transform function failed for handler ${this.generateHandlerId(handler)}:`, transformError);
+            // If transform fails, use original event
+            transformedEvent = event;
+          }
+        }
+
         if (this.handlerPoolService) {
           // Execute in isolated pool
           // _result =
-          await this.handlerPoolService.executeInPool(context.poolName, async () => await handler.handler(event));
+          await this.handlerPoolService.executeInPool(context.poolName, async () => await handler.handler(transformedEvent));
         } else {
           // Direct execution
           // _result =
-          await handler.handler(event);
+          await handler.handler(transformedEvent);
         }
 
         const duration = Date.now() - startTime;
