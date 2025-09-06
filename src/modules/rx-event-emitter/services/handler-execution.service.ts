@@ -71,7 +71,6 @@ export interface EnhancedExecutionContext extends HandlerExecutionContext {
   readonly executionTimeout: number;
   readonly poolName: string;
   readonly priority: number;
-  readonly tags: string[];
   readonly parentContext?: HandlerExecutionContext;
   readonly traceId: string;
   readonly spanId: string;
@@ -381,7 +380,6 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
       retryAttempt: 0,
       executionTimeout: timeout,
       priority,
-      tags: [],
       traceId: uuidv4(),
       spanId: uuidv4(),
       metadata: {

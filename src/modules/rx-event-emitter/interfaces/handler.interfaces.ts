@@ -14,36 +14,12 @@ export enum IsolationStrategy {
 }
 
 /**
- * Handler execution timeout strategy
- */
-export enum TimeoutStrategy {
-  /** Cancel handler execution on timeout */
-  CANCEL = 'cancel',
-  /** Log warning but continue */
-  WARN = 'warn',
-  /** Allow handler to continue */
-  CONTINUE = 'continue',
-}
-
-/**
  * Circuit breaker state
  */
 export enum CircuitBreakerState {
   CLOSED = 'closed',
   OPEN = 'open',
   HALF_OPEN = 'half-open',
-}
-
-/**
- * Resource isolation level
- */
-export enum ResourceIsolation {
-  /** Strict resource limits */
-  STRICT = 'strict',
-  /** Shared resources with limits */
-  SHARED = 'shared',
-  /** No resource isolation */
-  NONE = 'none',
 }
 
 /**
@@ -68,28 +44,10 @@ export interface HandlerOptions {
   concurrent?: boolean;
   /** Maximum concurrent executions */
   maxConcurrency?: number;
-  /** Bulkhead size for isolation */
-  bulkheadSize?: number;
   /** Isolation context identifier */
   isolationContext?: string;
-  /** Timeout handling strategy */
-  timeoutStrategy?: TimeoutStrategy;
-  /** Queue timeout in milliseconds */
-  queueTimeout?: number;
-  /** Maximum queue size */
-  maxQueueSize?: number;
-  /** Enable circuit breaker */
-  circuitBreakerEnabled?: boolean;
   /** Circuit breaker failure threshold */
   circuitBreakerThreshold?: number;
-  /** Resource isolation level */
-  resourceIsolation?: ResourceIsolation;
-  /** Handler dependencies */
-  dependencies?: readonly string[];
-  /** Priority group identifier */
-  priorityGroup?: string;
-  /** Handler tags for categorization */
-  tags?: readonly string[];
   /** Handler description */
   description?: string;
   /** Custom metadata */
@@ -212,12 +170,8 @@ export interface HandlerPoolStats {
     readonly resolve: (value: void) => void;
     readonly reject: (error: Error) => void;
   }[];
-  /** Maximum queue size */
-  readonly maxQueueSize: number;
   /** Number of dropped tasks */
   readonly droppedTasks: number;
-  /** Queue timeout in milliseconds */
-  readonly queueTimeout: number;
   /** Circuit breaker state */
   readonly circuitBreakerState: CircuitBreakerState;
   /** Circuit breaker failure count */

@@ -164,10 +164,6 @@ export interface HandlerMetadata {
   readonly eventName: string;
   /** Handler options */
   readonly options: HandlerOptions;
-  /** Dependencies */
-  readonly dependencies?: string[];
-  /** Tags for categorization */
-  readonly tags?: string[];
   /** Handler version */
   readonly version?: string;
   /** Handler description */

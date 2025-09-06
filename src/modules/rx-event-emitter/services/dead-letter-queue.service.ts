@@ -99,7 +99,7 @@ export class DeadLetterQueueService implements OnModuleInit, OnModuleDestroy {
     this.config = {
       enabled: true,
       maxEntries: 10000,
-      autoRetryIntervalMs: 60000,
+      autoRetryIntervalMs: 10000,
       defaultRetryPolicy: 'exponential',
       retryPolicies: DEFAULT_RETRY_POLICIES,
       persistence: {

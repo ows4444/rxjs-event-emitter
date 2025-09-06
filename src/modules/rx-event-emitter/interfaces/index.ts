@@ -67,5 +67,5 @@ export const EVENT_HANDLER_OPTIONS = Symbol('EVENT_HANDLER_OPTIONS');
 
 // Re-export key enums that are commonly used
 export { EventStatus, EventPriority } from './core.interfaces';
-export { CircuitBreakerState, IsolationStrategy, TimeoutStrategy, ResourceIsolation } from './handler.interfaces';
+export { CircuitBreakerState, IsolationStrategy } from './handler.interfaces';
 export { BackpressureStrategy } from './configuration.interfaces';
