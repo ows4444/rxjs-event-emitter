@@ -166,12 +166,43 @@ export class EventEmitterService implements OnModuleInit, OnModuleDestroy {
 
   async processEvent(event: Event): Promise<void> {
     const startTime = Date.now();
-    const handlers = this.handlers.get(event.metadata.name) || [];
+    const allHandlers = this.handlers.get(event.metadata.name) || [];
 
-    if (handlers.length === 0) {
+    if (allHandlers.length === 0) {
       this.logger.warn(`No handlers found for event: ${event.metadata.name}`);
       return;
     }
+
+    // Apply filter function to determine which handlers should process this event
+    const handlers = allHandlers.filter((handler) => {
+      if (handler.options.filter && typeof handler.options.filter === 'function') {
+        try {
+          this.logger.debug(`Applying filter for handler ${handler.handlerId}, event headers:`, event.metadata.headers);
+          const shouldProcess = handler.options.filter(event);
+          this.logger.debug(`Filter result for handler ${handler.handlerId}: ${shouldProcess}`);
+          if (!shouldProcess) {
+            this.logger.debug(`Handler ${handler.handlerId} filtered out for event ${event.metadata.name}`);
+          }
+          return shouldProcess;
+        } catch (filterError) {
+          this.logger.warn(`Filter function failed for handler ${handler.handlerId}:`, filterError);
+          // If filter fails, include the handler (fail-safe behavior)
+          return true;
+        }
+      }
+      // No filter means handler should always process the event
+      this.logger.debug(`Handler ${handler.handlerId} has no filter - allowing`);
+      return true;
+    });
+
+    if (handlers.length === 0) {
+      this.logger.warn(`All handlers filtered out for event: ${event.metadata.name} (had ${allHandlers.length} total handlers)`);
+      return;
+    }
+
+    this.logger.debug(
+      `Processing event ${event.metadata.name} with ${handlers.length} handlers (${allHandlers.length} total, ${allHandlers.length - handlers.length} filtered out)`,
+    );
 
     const promises = handlers.map(async (handler) => {
       try {
@@ -221,8 +252,7 @@ export class EventEmitterService implements OnModuleInit, OnModuleDestroy {
       // All handlers failed - throw an error so DLQ can retry
       const firstError = results.find((result) => result.status === 'fulfilled' && !result.value.success);
       const error = firstError && firstError.status === 'fulfilled' ? firstError.value.error : new Error('All handlers failed');
-
-      throw error;
+      if (error) throw error;
     }
   }
 
