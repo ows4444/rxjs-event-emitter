@@ -140,8 +140,8 @@ export class EventEmitterService implements OnModuleInit, OnModuleDestroy {
           bufferTime(this.options.bufferTimeMs!),
           filter((events) => events.length > 0),
           mergeMap((events) => this.processEventBatch(events), this.options.maxConcurrency),
-          catchError((error) => {
-            this.logger.error(`Error processing events for ${group.key}:`, error);
+          catchError(() => {
+            this.logger.error(`Error processing events for ${group.key}:`);
             return EMPTY;
           }),
         ),
@@ -164,7 +164,7 @@ export class EventEmitterService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async processEvent(event: Event): Promise<void> {
+  async processEvent(event: Event): Promise<void> {
     const startTime = Date.now();
     const handlers = this.handlers.get(event.metadata.name) || [];
 
@@ -198,6 +198,7 @@ export class EventEmitterService implements OnModuleInit, OnModuleDestroy {
         }
 
         this.logger.debug(`Handler executed successfully for event: ${event.metadata.name}`);
+        return { success: true };
       } catch (error: unknown) {
         this.logger.error(`Handler failed for event ${event.metadata.name}:`, error instanceof Error ? error.message : String(error));
 
@@ -206,17 +207,23 @@ export class EventEmitterService implements OnModuleInit, OnModuleDestroy {
           this.metricsService.recordEventFailed(event, error as Error);
         }
 
-        // Send to dead letter queue if available
-        if (this.advancedFeaturesEnabled && this.dlqService && this.options.enableDeadLetterQueue) {
-          this.dlqService.addEntry(event, error as Error);
-          this.logger.debug(`Event ${event.metadata.id} sent to dead letter queue`);
-        } else if (this.options.enableDeadLetterQueue) {
-          this.logger.warn(`Event ${event.metadata.id} should be sent to DLQ but service not available`);
-        }
+        // DLQ handling is done in HandlerExecutionService to avoid duplicates
+        return { success: false, error: error as Error };
       }
     });
 
-    await Promise.allSettled(promises);
+    const results = await Promise.allSettled(promises);
+
+    // Check if ALL handlers failed - if so, throw an error for retry purposes
+    const successes = results.filter((result) => result.status === 'fulfilled' && result.value.success);
+
+    if (successes.length === 0) {
+      // All handlers failed - throw an error so DLQ can retry
+      const firstError = results.find((result) => result.status === 'fulfilled' && !result.value.success);
+      const error = firstError && firstError.status === 'fulfilled' ? firstError.value.error : new Error('All handlers failed');
+
+      throw error;
+    }
   }
 
   emit<T = unknown>(eventName: string, payload: T, options: EmitOptions = {}): Promise<void> {

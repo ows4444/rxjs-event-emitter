@@ -3,7 +3,8 @@
  */
 
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Inject, Optional } from '@nestjs/common';
-import { BehaviorSubject, EMPTY, Subject, Subscription, timer } from 'rxjs';
+import { ModuleRef } from '@nestjs/core';
+import { BehaviorSubject, EMPTY, Subject, Subscription, timer, from } from 'rxjs';
 import { catchError, switchMap, takeUntil, tap, filter } from 'rxjs/operators';
 import { Event, DLQEntry, DLQConfig, DLQMetrics, RetryPolicy, PolicyStats, EVENT_EMITTER_OPTIONS } from '../interfaces';
 import { EventEmitterService } from './event-emitter.service';
@@ -91,7 +92,7 @@ export class DeadLetterQueueService implements OnModuleInit, OnModuleDestroy {
     @Optional()
     @Inject(EVENT_EMITTER_OPTIONS)
     private readonly options: Record<string, unknown> = {},
-    @Optional() private readonly eventEmitterService?: EventEmitterService,
+    private readonly moduleRef: ModuleRef,
     @Optional() private readonly persistenceService?: PersistenceService,
     @Optional() private readonly metricsService?: MetricsService,
   ) {
@@ -165,7 +166,7 @@ export class DeadLetterQueueService implements OnModuleInit, OnModuleDestroy {
     const subscription = this.retryQueue$
       .pipe(
         takeUntil(this.shutdown$),
-        switchMap((entry) => this.processRetryEntry(entry)),
+        switchMap((entry) => from(this.processRetryEntry(entry))),
         catchError((error) => {
           this.logger.error('Error processing retry:', error);
           return EMPTY;
@@ -201,18 +202,25 @@ export class DeadLetterQueueService implements OnModuleInit, OnModuleDestroy {
     this.processingEntries.set(eventId, entry);
 
     try {
-      if (!this.eventEmitterService) {
+      const eventEmitterService = this.moduleRef.get(EventEmitterService, {
+        strict: false,
+      });
+      if (!eventEmitterService) {
         throw new Error('EventEmitterService not available for retry');
       }
 
-      await this.eventEmitterService.emit(entry.event.metadata.name, entry.event.payload, {
-        correlationId: entry.event.metadata.correlationId,
-        causationId: entry.event.metadata.causationId,
-        headers: {
-          ...entry.event.metadata.headers,
-          retryAttempt: entry.attempts + 1,
+      // Create retry event with updated metadata
+      const retryEvent = {
+        ...entry.event,
+        metadata: {
+          ...entry.event.metadata,
+          headers: {
+            ...entry.event.metadata.headers,
+            retryAttempt: entry.attempts + 1,
+          },
         },
-      });
+      };
+      await eventEmitterService.processEvent(retryEvent);
 
       this.handleRetrySuccess(entry);
       this.logger.debug(`Successfully reprocessed event: ${entry.event.metadata.id}`);
@@ -231,9 +239,10 @@ export class DeadLetterQueueService implements OnModuleInit, OnModuleDestroy {
 
   private handleRetryFailure(entry: DLQEntry, error: Error): void {
     const policy = this.getRetryPolicy(entry.retryPolicy || this.config.defaultRetryPolicy);
-    const shouldRetry = policy.retryConditions.some((condition) => condition.shouldRetry(error, entry.attempts + 1));
+    const nextAttempt = entry.attempts + 1;
+    const shouldRetry = policy.retryConditions.some((condition) => condition.shouldRetry(error, nextAttempt)) && nextAttempt <= policy.maxRetries;
 
-    if (shouldRetry && entry.attempts < policy.maxRetries) {
+    if (shouldRetry) {
       const delay = this.calculateDelay(policy, entry.attempts + 1);
       const updatedEntry: DLQEntry = {
         ...entry,
@@ -258,14 +267,23 @@ export class DeadLetterQueueService implements OnModuleInit, OnModuleDestroy {
   }
 
   private scheduleRetry(entry: DLQEntry, delay: number): void {
-    timer(delay)
+    const subscription = timer(delay)
       .pipe(
         takeUntil(this.shutdown$),
         filter(() => this.queue.has(entry.event.metadata.id)),
       )
       .subscribe(() => {
-        this.retryQueue$.next(entry);
+        // Unmark as scheduled before retry
+        const entryToRetry = {
+          ...entry,
+          isScheduled: false,
+        };
+        this.queue.set(entry.event.metadata.id, entryToRetry);
+        this.retryQueue$.next(entryToRetry);
       });
+
+    // Store the subscription to prevent garbage collection
+    this.subscriptions.add(subscription);
   }
 
   private calculateDelay(policy: RetryPolicy, attempt: number): number {
@@ -401,6 +419,27 @@ export class DeadLetterQueueService implements OnModuleInit, OnModuleDestroy {
   }
 
   // Public API methods
+
+  registerCustomRetryPolicy(name: string, maxRetries: number): void {
+    const customPolicy = {
+      name,
+      maxRetries,
+      baseDelayMs: 1000,
+      maxDelayMs: 30000,
+      exponentialMultiplier: 2,
+      jitterFactor: 0.1,
+      enableJitter: true,
+      retryConditions: [
+        {
+          shouldRetry: (error: Error, attempt: number) => attempt <= maxRetries && !error.message.includes('PERMANENT'),
+          description: `Retry non-permanent errors up to ${maxRetries} times`,
+        },
+      ],
+    };
+
+    this.config.retryPolicies[name] = customPolicy;
+    this.logger.debug(`Registered custom retry policy '${name}' with ${maxRetries} retries`);
+  }
 
   addEntry(event: Event, error: Error, retryPolicy?: string): void {
     const entry: DLQEntry = {

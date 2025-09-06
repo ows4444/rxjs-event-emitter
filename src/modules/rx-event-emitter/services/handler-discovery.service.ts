@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { DiscoveryService, MetadataScanner, Reflector } from '@nestjs/core';
 import { InstanceWrapper } from '@nestjs/core/injector/instance-wrapper';
-import { EVENT_HANDLER_METADATA } from '../interfaces';
+import { EVENT_HANDLER_METADATA, EVENT_HANDLER_OPTIONS, HandlerOptions, RegisteredHandler } from '../interfaces';
 import { EventEmitterService } from './event-emitter.service';
 
 @Injectable()
@@ -44,25 +44,35 @@ export class HandlerDiscoveryService {
       return;
     }
 
-    // Handler options available for future use
-    // const _handlerOptions =
-    //   this.reflector.get<HandlerOptions>(
-    //     EVENT_HANDLER_OPTIONS,
-    //     instance[methodName] as (...args: unknown[]) => unknown,
-    //   ) || {};
+    // Get handler options from decorator
+    const handlerOptions = this.reflector.get<HandlerOptions>(EVENT_HANDLER_OPTIONS, instance[methodName] as (...args: unknown[]) => unknown) || {};
 
     const handler = async (event: unknown) => {
-      try {
-        const method = instance[methodName] as (...args: unknown[]) => unknown;
-        await method.call(instance, event);
-      } catch (error: unknown) {
-        this.logger.error(`Handler ${instance.constructor.name}.${methodName} failed for event ${eventName}:`, error);
-        throw error;
-      }
+      const method = instance[methodName] as (...args: unknown[]) => unknown;
+      await method.call(instance, event);
     };
 
-    this.eventEmitter.registerHandler(eventName, handler);
+    const handlerId = `${instance.constructor.name}.${methodName}@${eventName}`;
 
-    this.logger.log(`Registered event handler: ${instance.constructor.name}.${methodName} for event '${eventName}'`);
+    // Create a proper RegisteredHandler with options
+    const registeredHandler: RegisteredHandler = {
+      eventName,
+      handler,
+      instance,
+      options: handlerOptions,
+      handlerId,
+      metadata: {
+        eventName,
+        options: handlerOptions,
+        className: instance.constructor.name,
+        methodName,
+        handlerId,
+      },
+    };
+
+    // Use registerAdvancedHandler instead of registerHandler to preserve options
+    this.eventEmitter.registerAdvancedHandler(registeredHandler);
+
+    this.logger.log(`Registered event handler: ${instance.constructor.name}.${methodName} for event '${eventName}' with options:`, handlerOptions);
   }
 }

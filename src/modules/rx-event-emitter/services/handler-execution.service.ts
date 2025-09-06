@@ -209,7 +209,7 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
         return executionResult;
       } else {
         // Handler failed, treat as error
-        this.handleExecutionFailure(handlerId, event, result.error!, executionResult);
+        this.handleExecutionFailure(handlerId, handler, event, result.error!, executionResult);
         throw result.error!;
       }
     } finally {
@@ -415,7 +415,7 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
     this.executionResults$.next(result);
   }
 
-  private handleExecutionFailure(handlerId: string, event: Event, error: Error, result: DetailedExecutionResult): void {
+  private handleExecutionFailure(handlerId: string, handler: RegisteredHandler, event: Event, error: Error, result: DetailedExecutionResult): void {
     this.updateExecutionStats(handlerId, false, result.executionTime || 0, error);
     this.updateCircuitBreaker(handlerId, false);
 
@@ -425,10 +425,29 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
 
     // Send to dead letter queue if configured
     if (this.dlqService && !result.needsRetry) {
-      this.dlqService.addEntry(event, error);
+      // Use handler's retry configuration if available
+      const customRetryPolicy = this.createRetryPolicyForHandler(handler);
+      this.dlqService.addEntry(event, error, customRetryPolicy);
     }
 
     this.executionResults$.next(result);
+  }
+
+  private createRetryPolicyForHandler(handler: RegisteredHandler): string | undefined {
+    // If handler has custom retry configuration, create a custom policy
+    const retries = handler.options.retries;
+    if (typeof retries === 'number' && retries > 0) {
+      // Register a custom retry policy for this handler
+      const policyName = `handler_${handler.handlerId}`;
+
+      // Register the custom policy with the DLQ service
+      if (this.dlqService) {
+        this.dlqService.registerCustomRetryPolicy(policyName, retries);
+        return policyName;
+      }
+    }
+
+    return undefined; // Use default policy
   }
 
   private updateExecutionStats(handlerId: string, success: boolean, duration: number, error?: Error): void {
