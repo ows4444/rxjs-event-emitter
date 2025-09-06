@@ -2,24 +2,6 @@ import type { Event, PersistenceAdapter, PersistenceStats, HealthCheckResult } f
 
 /**
  * In-memory implementation of PersistenceAdapter
- *
- * This adapter stores events in memory and is suitable for:
- * - Development and testing
- * - Small applications with low event volume
- * - Scenarios where persistence is not required across restarts
- *
- * Note: All data is lost when the application restarts.
- *
- * @example
- * ```typescript
- * const adapter = new InMemoryPersistenceAdapter();
- *
- * // Save event
- * adapter.save(event);
- *
- * // Load unprocessed events
- * const pending = adapter.loadUnprocessed();
- * ```
  */
 export class InMemoryPersistenceAdapter implements PersistenceAdapter {
   private readonly events = new Map<string, Event & { processed: boolean; failed?: Error; createdAt: number }>();
@@ -50,17 +32,6 @@ export class InMemoryPersistenceAdapter implements PersistenceAdapter {
     return Array.from(this.events.values())
       .filter((e) => !e.processed)
       .map((e) => ({ metadata: e.metadata, payload: e.payload }));
-  }
-
-  /**
-   * Load all events (processed and unprocessed)
-   * @deprecated Use query methods instead for better performance
-   */
-  loadAll(): Event[] {
-    return Array.from(this.events.values()).map((e) => ({
-      metadata: e.metadata,
-      payload: e.payload,
-    }));
   }
 
   /**
@@ -104,30 +75,26 @@ export class InMemoryPersistenceAdapter implements PersistenceAdapter {
     const failedEvents = events.filter((e) => e.failed).length;
     const totalSize = JSON.stringify(events).length;
 
-    const timestamps = events.map((e) => e.metadata.timestamp).filter((t) => t);
-    const oldestEvent = timestamps.length > 0 ? new Date(Math.min(...timestamps)) : undefined;
-    const newestEvent = timestamps.length > 0 ? new Date(Math.max(...timestamps)) : undefined;
-
     return {
       totalEvents: events.length,
       processedEvents,
       failedEvents,
       unprocessedEvents: events.length - processedEvents,
       storageSize: totalSize,
-      oldestEvent,
-      newestEvent,
-      avgEventSize: events.length > 0 ? Math.round(totalSize / events.length) : 0,
+      averageEventSize: events.length > 0 ? Math.round(totalSize / events.length) : 0,
+      utilization: 0,
       performance: {
-        operationsPerSecond: 0, // In-memory is instant
-        avgLoadTime: 0,
-        avgQueryTime: 0,
         avgSaveTime: 0,
+        avgLoadTime: 0,
+        operationsPerSecond: 1000,
+        cacheHitRatio: 1,
       },
-      health: {
-        isHealthy: false,
-        lastHealthCheck: 0,
-        connected: false,
+      errors: {
+        totalErrors: failedEvents,
+        errorRate: events.length > 0 ? failedEvents / events.length : 0,
+        lastErrorAt: undefined,
       },
+      collectedAt: Date.now(),
     };
   }
 
@@ -135,25 +102,21 @@ export class InMemoryPersistenceAdapter implements PersistenceAdapter {
    * Perform health check
    */
   healthCheck(): HealthCheckResult {
-    const stats = this.getStats();
-    const memoryUsage = process.memoryUsage();
-
     return {
-      healthy: true,
-      checks: {
-        connectivity: true,
-        diskSpace: true,
-        performance: stats.totalEvents < 10000, // Warn if too many events in memory
-        integrity: true,
-        backup: true,
+      status: 'healthy' as const,
+      responseTime: 0,
+      connection: {
+        available: true,
       },
-      metrics: {
-        responseTimeMs: 0, // In-memory is instant
-        availableSpaceBytes: memoryUsage.heapTotal - memoryUsage.heapUsed,
+      storage: {
+        accessible: true,
+      },
+      performance: {
+        latency: 0,
+        throughput: 1000,
         errorRate: 0,
       },
-      issues: stats.totalEvents >= 10000 ? ['High event count in memory - consider using persistent storage'] : [],
-      timestamp: 0,
+      timestamp: Date.now(),
     };
   }
 

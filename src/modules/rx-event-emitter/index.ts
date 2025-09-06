@@ -33,7 +33,6 @@ export {
   HandlerExecutionService,
   StreamManagementService,
   // Additional exports for enhanced functionality
-  EventMetrics,
   SystemMetrics,
   MetricsConfig,
   HandlerExecutionStats,
@@ -50,7 +49,7 @@ export {
 } from './services';
 
 // Import interfaces from interfaces module
-export { HandlerDependency, DependencyType, DependencyStrength, CircularDependency, DependencyAnalysisResult, ExecutionPlan } from './interfaces';
+export { HandlerDiscoveryResult, CircularDependency } from './interfaces';
 
 // =============================================================================
 // TYPE EXPORTS - All interfaces and types

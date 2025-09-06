@@ -1,7 +1,7 @@
 export { EventEmitterService, EventEmitterOptions } from './event-emitter.service';
 export { HandlerDiscoveryService } from './handler-discovery.service';
 export { PersistenceService } from './persistence.service';
-export { MetricsService, EventMetrics, SystemMetrics, MetricsConfig } from './metrics.service';
+export { MetricsService, SystemMetrics, MetricsConfig } from './metrics.service';
 export { DeadLetterQueueService } from './dead-letter-queue.service';
 export { HandlerPoolService } from './handler-pool.service';
 export { DependencyAnalyzerService } from './dependency-analyzer.service';

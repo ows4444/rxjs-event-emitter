@@ -3,24 +3,8 @@
  */
 
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject, Optional } from '@nestjs/common';
-import { BehaviorSubject, Observable, Subject, Subscription, timer, EMPTY, throwError } from 'rxjs';
-import {
-  takeUntil,
-  catchError,
-  retry,
-  debounceTime,
-  throttleTime,
-  bufferTime,
-  bufferCount,
-  mergeMap,
-  concatMap,
-  switchMap,
-  exhaustMap,
-  share,
-  filter,
-  tap,
-  finalize,
-} from 'rxjs/operators';
+import { BehaviorSubject, Observable, Subject, Subscription, timer, EMPTY } from 'rxjs';
+import { takeUntil, catchError, retry, bufferTime, bufferCount, mergeMap, share, filter, tap, finalize } from 'rxjs/operators';
 import { StreamMetrics, EVENT_EMITTER_OPTIONS } from '../interfaces';
 
 /**
@@ -32,7 +16,6 @@ export interface StreamConfig {
     readonly enabled: boolean;
     readonly strategy: BackpressureStrategy;
     readonly bufferSize: number;
-    readonly dropStrategy: DropStrategy;
     readonly warningThreshold: number;
   };
   readonly batching: {
@@ -63,21 +46,7 @@ export interface StreamConfig {
  * Backpressure strategies
  */
 export enum BackpressureStrategy {
-  DROP_OLDEST = 'drop_oldest',
-  DROP_NEWEST = 'drop_newest',
   BUFFER = 'buffer',
-  THROTTLE = 'throttle',
-  DEBOUNCE = 'debounce',
-}
-
-/**
- * Drop strategies for overflow
- */
-export enum DropStrategy {
-  HEAD = 'head', // Drop from beginning
-  TAIL = 'tail', // Drop from end
-  RANDOM = 'random', // Drop random items
-  PRIORITY = 'priority', // Drop by priority
 }
 
 /**
@@ -85,19 +54,13 @@ export enum DropStrategy {
  */
 export enum ConcurrencyStrategy {
   MERGE = 'merge', // Process all in parallel
-  CONCAT = 'concat', // Process sequentially
-  SWITCH = 'switch', // Cancel previous on new
-  EXHAUST = 'exhaust', // Ignore new while processing
 }
 
 /**
  * Error handling strategies
  */
 export enum ErrorStrategy {
-  IGNORE = 'ignore', // Continue processing
   RETRY = 'retry', // Retry failed operations
-  CIRCUIT_BREAKER = 'circuit_breaker', // Stop on repeated failures
-  DEAD_LETTER = 'dead_letter', // Send to DLQ
 }
 
 /**
@@ -187,7 +150,6 @@ export class StreamManagementService implements OnModuleInit, OnModuleDestroy {
         enabled: true,
         strategy: BackpressureStrategy.BUFFER,
         bufferSize: 1000,
-        dropStrategy: DropStrategy.TAIL,
         warningThreshold: 800,
       },
       batching: {
@@ -539,12 +501,6 @@ export class StreamManagementService implements OnModuleInit, OnModuleDestroy {
 
   private applyBackpressure<T>(stream: Observable<T>, config: StreamConfig): Observable<T> {
     switch (config.backpressure.strategy) {
-      case BackpressureStrategy.THROTTLE:
-        return stream.pipe(throttleTime(100));
-
-      case BackpressureStrategy.DEBOUNCE:
-        return stream.pipe(debounceTime(100));
-
       case BackpressureStrategy.BUFFER:
         // Simple buffer strategy - in production would need more sophisticated buffering
         return stream;
@@ -576,15 +532,6 @@ export class StreamManagementService implements OnModuleInit, OnModuleDestroy {
       case ConcurrencyStrategy.MERGE:
         return stream.pipe(mergeMap(processor, config.concurrency.maxConcurrent));
 
-      case ConcurrencyStrategy.CONCAT:
-        return stream.pipe(concatMap(processor));
-
-      case ConcurrencyStrategy.SWITCH:
-        return stream.pipe(switchMap(processor));
-
-      case ConcurrencyStrategy.EXHAUST:
-        return stream.pipe(exhaustMap(processor));
-
       default:
         return stream.pipe(mergeMap(processor, config.concurrency.maxConcurrent));
     }
@@ -612,23 +559,6 @@ export class StreamManagementService implements OnModuleInit, OnModuleDestroy {
             }),
           );
         }
-
-      case ErrorStrategy.IGNORE:
-        return stream.pipe(
-          catchError((error) => {
-            this.logger.debug('Stream error ignored:', error);
-            return EMPTY;
-          }),
-        );
-
-      case ErrorStrategy.CIRCUIT_BREAKER:
-        // Simplified circuit breaker - would need full implementation
-        return stream.pipe(
-          catchError((error: Error) => {
-            this.logger.error('Stream circuit breaker triggered:', error);
-            return throwError(() => error);
-          }),
-        );
 
       default:
         return stream;
@@ -899,8 +829,10 @@ export class StreamManagementService implements OnModuleInit, OnModuleDestroy {
   }
 
   private calculateCpuUsage(): number {
-    // Simplified CPU usage - would need actual CPU monitoring
-    return Math.random() * 20; // Mock value 0-20%
+    // Simplified CPU usage calculation based on stream activity
+    const activeStreams = this.getManagedStreams().filter((s) => !s.subscription.closed).length;
+    const baseUsage = Math.min(activeStreams * 2, 15); // 2% per active stream, max 15%
+    return baseUsage;
   }
 
   private createInitialMetrics(): StreamMetrics {

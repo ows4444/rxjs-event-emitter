@@ -50,53 +50,48 @@ export interface PersistenceAdapter {
   /** Restore events from backup */
   readonly restore?: (source: string) => RestoreResult | Promise<RestoreResult>;
 
-  // Health monitoring
-  /** Perform health check on storage */
+  // Health check capabilities
+  /** Check adapter health */
   readonly healthCheck?: () => HealthCheckResult | Promise<HealthCheckResult>;
+
+  // Query capabilities for complex event retrieval
+  /** Query events with complex filters */
+  readonly query?: <T = Event>(query: EventQuery) => QueryResult<T> | Promise<QueryResult<T>>;
 }
 
 /**
- * Async-only version of persistence adapter
- * All operations return promises for better async/await support
+ * Extended async persistence adapter interface
  */
 export interface AsyncPersistenceAdapter extends PersistenceAdapter {
-  /** Save an event asynchronously */
+  /** All operations return promises */
   save(event: Event): Promise<void>;
-
-  /** Load an event asynchronously */
   load(id: string): Promise<Event | null>;
-
-  /** Load unprocessed events asynchronously */
   loadUnprocessed(): Promise<Event[]>;
-
-  /** Mark event as processed asynchronously */
   markProcessed(id: string): Promise<void>;
-
-  /** Mark event as failed asynchronously */
   markFailed(id: string, error: Error): Promise<void>;
-
-  /** Clean old events asynchronously */
   clean(beforeDate: Date): Promise<void>;
+
+  /** Extended async methods */
+  readonly loadByEventName: (eventName: string) => Promise<Event[]>;
+  readonly loadByTimeRange: (start: Date, end: Date) => Promise<Event[]>;
+  readonly loadByCorrelationId: (correlationId: string) => Promise<Event[]>;
+  readonly count: () => Promise<number>;
+  readonly getStats: () => Promise<PersistenceStats>;
+  readonly beginTransaction: () => Promise<Transaction>;
+  readonly backup: (destination: string) => Promise<BackupResult>;
+  readonly restore: (source: string) => Promise<RestoreResult>;
+  readonly healthCheck: () => Promise<HealthCheckResult>;
+  readonly query: <T = Event>(query: EventQuery) => Promise<QueryResult<T>>;
 }
 
 /**
  * Transaction interface for atomic operations
- * Ensures data consistency across multiple persistence operations
  */
 export interface Transaction {
-  /** Unique transaction identifier */
-  readonly id: string;
-
-  /** Transaction start timestamp */
-  readonly startTime: number;
-
-  /** List of operations in this transaction */
-  readonly operations: readonly TransactionOperation[];
-
-  /** Commit all operations atomically */
+  /** Commit all operations in transaction */
   commit(): void | Promise<void>;
 
-  /** Rollback all operations */
+  /** Rollback all operations in transaction */
   rollback(): void | Promise<void>;
 
   /** Add an operation to the transaction */
@@ -148,254 +143,223 @@ export interface PersistenceStats {
   /** Number of unprocessed events */
   readonly unprocessedEvents: number;
 
-  /** Total storage size in bytes */
+  /** Storage size in bytes */
   readonly storageSize: number;
 
-  /** Timestamp of oldest event */
-  readonly oldestEvent?: Date;
-
-  /** Timestamp of newest event */
-  readonly newestEvent?: Date;
-
   /** Average event size in bytes */
-  readonly avgEventSize: number;
+  readonly averageEventSize: number;
 
-  /** Compression ratio if compression is enabled */
-  readonly compressionRatio?: number;
-
-  /** Index size in bytes */
-  readonly indexSize?: number;
+  /** Storage utilization percentage */
+  readonly utilization: number;
 
   /** Performance metrics */
   readonly performance: {
-    /** Average save operation time in ms */
+    /** Average save time in milliseconds */
     readonly avgSaveTime: number;
-    /** Average load operation time in ms */
+    /** Average load time in milliseconds */
     readonly avgLoadTime: number;
-    /** Average query time in ms */
-    readonly avgQueryTime: number;
     /** Operations per second */
     readonly operationsPerSecond: number;
+    /** Cache hit ratio */
+    readonly cacheHitRatio?: number;
   };
 
-  /** Health metrics */
-  readonly health: {
-    /** Storage is healthy */
-    readonly isHealthy: boolean;
-    /** Last health check timestamp */
-    readonly lastHealthCheck: number;
-    /** Available storage space in bytes */
-    readonly availableSpace?: number;
-    /** Connection status */
-    readonly connected: boolean;
+  /** Error statistics */
+  readonly errors: {
+    /** Total error count */
+    readonly totalErrors: number;
+    /** Error rate (errors/operations) */
+    readonly errorRate: number;
+    /** Last error timestamp */
+    readonly lastErrorAt?: number;
   };
+
+  /** Timestamp of when stats were collected */
+  readonly collectedAt: number;
 }
 
 /**
  * Result of backup operation
  */
 export interface BackupResult {
-  /** Whether backup was successful */
+  /** Backup operation success status */
   readonly success: boolean;
 
-  /** Unique backup identifier */
-  readonly backupId: string;
-
   /** Number of events backed up */
-  readonly eventCount: number;
+  readonly eventsBackedUp: number;
 
   /** Backup size in bytes */
-  readonly sizeBytes: number;
+  readonly backupSize: number;
+
+  /** Backup file path or identifier */
+  readonly backupLocation: string;
 
   /** Backup duration in milliseconds */
   readonly duration: number;
 
-  /** MD5 checksum for integrity verification */
-  readonly checksumMD5?: string;
+  /** Backup timestamp */
+  readonly timestamp: number;
+
+  /** Backup format version */
+  readonly version: string;
+
+  /** Error message if backup failed */
+  readonly error?: string;
 
   /** Backup metadata */
   readonly metadata?: {
-    /** Schema version */
-    readonly version: string;
-    /** Backup timestamp */
-    readonly timestamp: Date;
-    /** Source adapter type */
-    readonly sourceAdapter: string;
+    /** Backup method used */
+    readonly method: 'full' | 'incremental' | 'differential';
     /** Compression used */
     readonly compression?: string;
     /** Encryption used */
-    readonly encryption?: boolean;
+    readonly encryption?: string;
   };
-
-  /** Errors encountered during backup */
-  readonly errors?: readonly string[];
-
-  /** Warnings generated during backup */
-  readonly warnings?: readonly string[];
 }
 
 /**
  * Result of restore operation
  */
 export interface RestoreResult {
-  /** Whether restore was successful */
+  /** Restore operation success status */
   readonly success: boolean;
 
-  /** Number of events successfully restored */
-  readonly restoredCount: number;
+  /** Number of events restored */
+  readonly eventsRestored: number;
 
-  /** Number of events skipped (duplicates, etc.) */
-  readonly skippedCount: number;
+  /** Number of events skipped (duplicates) */
+  readonly eventsSkipped: number;
 
-  /** Number of events that failed to restore */
-  readonly errorCount: number;
+  /** Number of events failed to restore */
+  readonly eventsFailed: number;
 
   /** Restore duration in milliseconds */
   readonly duration: number;
 
+  /** Restore timestamp */
+  readonly timestamp: number;
+
+  /** Source backup version */
+  readonly backupVersion: string;
+
   /** Errors encountered during restore */
-  readonly errors?: readonly Error[];
+  readonly errors: readonly string[];
 
-  /** Warnings generated during restore */
-  readonly warnings?: readonly string[];
-
-  /** Validation results */
-  readonly validation?: {
-    /** Checksum validation passed */
-    readonly checksumValid: boolean;
-    /** Schema version compatibility */
-    readonly schemaCompatible: boolean;
-    /** Data integrity check */
-    readonly dataIntegrityValid: boolean;
-  };
+  /** Restore warnings */
+  readonly warnings: readonly string[];
 }
 
 /**
- * Health check result for persistence layer
+ * Health check result for persistence adapter
  */
 export interface HealthCheckResult {
   /** Overall health status */
-  readonly healthy: boolean;
+  readonly status: 'healthy' | 'degraded' | 'unhealthy';
 
-  /** Individual health checks */
-  readonly checks: {
-    /** Connection to storage is working */
-    readonly connectivity: boolean;
-    /** Sufficient disk space available */
-    readonly diskSpace: boolean;
-    /** Performance is within acceptable limits */
-    readonly performance: boolean;
-    /** Data integrity is maintained */
-    readonly integrity: boolean;
-    /** Backups are up to date */
-    readonly backup: boolean;
+  /** Response time in milliseconds */
+  readonly responseTime: number;
+
+  /** Connection status */
+  readonly connection: {
+    /** Connection available */
+    readonly available: boolean;
+    /** Connection pool status */
+    readonly poolStatus?: 'healthy' | 'degraded' | 'exhausted';
+    /** Active connections */
+    readonly activeConnections?: number;
   };
 
-  /** Health metrics */
-  readonly metrics: {
-    /** Average response time in milliseconds */
-    readonly responseTimeMs: number;
-    /** Available storage space in bytes */
-    readonly availableSpaceBytes?: number;
-    /** Age of last backup in hours */
-    readonly lastBackupAge?: number;
-    /** Error rate as percentage */
+  /** Storage status */
+  readonly storage: {
+    /** Storage accessible */
+    readonly accessible: boolean;
+    /** Available storage space */
+    readonly availableSpace?: number;
+    /** Storage utilization */
+    readonly utilization?: number;
+  };
+
+  /** Performance metrics */
+  readonly performance: {
+    /** Recent operation latency */
+    readonly latency: number;
+    /** Operations per second */
+    readonly throughput: number;
+    /** Error rate */
     readonly errorRate: number;
-    /** Current connection count */
-    readonly connectionCount?: number;
   };
 
-  /** Health issues found */
-  readonly issues?: readonly string[];
-
-  /** Recommendations for improvement */
-  readonly recommendations?: readonly string[];
-
-  /** Last health check timestamp */
+  /** Health check timestamp */
   readonly timestamp: number;
+
+  /** Additional details or error messages */
+  readonly details?: string;
 }
 
 /**
- * Query parameters for event retrieval
- * Provides flexible filtering and pagination options
+ * Query interface for complex event filtering
  */
 export interface EventQuery {
-  /** Filter by event name/type */
-  readonly eventName?: string;
+  /** Event name filter */
+  readonly eventName?: string | readonly string[];
 
-  /** Filter by correlation ID */
-  readonly correlationId?: string;
+  /** Event ID filter */
+  readonly eventId?: string | readonly string[];
 
-  /** Filter by causation ID */
-  readonly causationId?: string;
+  /** Time range filter */
+  readonly timeRange?: {
+    readonly start: Date;
+    readonly end: Date;
+  };
 
-  /** Start time for time range filter */
-  readonly startTime?: Date;
+  /** Correlation ID filter */
+  readonly correlationId?: string | readonly string[];
 
-  /** End time for time range filter */
-  readonly endTime?: Date;
+  /** Event status filter */
+  readonly status?: 'processed' | 'unprocessed' | 'failed';
 
-  /** Filter by processing status */
-  readonly processed?: boolean;
+  /** Payload content filter */
+  readonly payloadFilter?: {
+    readonly field: string;
+    readonly operator: 'equals' | 'contains' | 'startsWith' | 'endsWith' | 'regex';
+    readonly value: unknown;
+  };
 
-  /** Filter by failure status */
-  readonly failed?: boolean;
+  /** Result pagination */
+  readonly pagination?: {
+    readonly offset: number;
+    readonly limit: number;
+  };
 
-  /** Maximum number of results */
-  readonly limit?: number;
-
-  /** Pagination offset */
-  readonly offset?: number;
-
-  /** Sort field */
-  readonly sortBy?: 'timestamp' | 'eventName' | 'processed' | 'priority' | 'retryCount';
-
-  /** Sort order */
-  readonly sortOrder?: 'asc' | 'desc';
-
-  /** Include event payload in results */
-  readonly includePayload?: boolean;
-
-  /** Filter by event priority */
-  readonly priority?: number | readonly number[];
-
-  /** Filter by event source */
-  readonly source?: string;
-
-  /** Full-text search in payload */
-  readonly searchText?: string;
-
-  /** Custom metadata filters */
-  readonly metadata?: Readonly<Record<string, unknown>>;
+  /** Result sorting */
+  readonly sorting?: {
+    readonly field: string;
+    readonly direction: 'asc' | 'desc';
+  };
 }
 
 /**
- * Result of event query operation
+ * Query result wrapper with metadata
  */
 export interface QueryResult<T = Event> {
-  /** Retrieved events */
+  /** Query result events */
   readonly events: readonly T[];
 
-  /** Total count of matching events */
+  /** Total count (before pagination) */
   readonly totalCount: number;
 
-  /** Whether more results are available */
-  readonly hasMore: boolean;
-
-  /** Next offset for pagination */
-  readonly nextOffset?: number;
-
   /** Query execution time in milliseconds */
-  readonly executionTimeMs: number;
+  readonly executionTime: number;
 
-  /** Query metadata */
+  /** Whether result is from cache */
+  readonly cached?: boolean;
+
+  /** Result metadata */
   readonly metadata: {
-    /** Query parameters used */
-    readonly query: EventQuery;
-    /** Query timestamp */
+    /** Query hash for caching */
+    readonly queryHash: string;
+    /** Execution timestamp */
     readonly timestamp: number;
-    /** Cache hit status */
-    readonly cacheHit?: boolean;
     /** Index usage information */
     readonly indexUsed?: readonly string[];
   };
@@ -432,368 +396,5 @@ export interface InMemoryAdapterConfig {
     readonly intervalMs: number;
     /** Backup retention in days */
     readonly retentionDays: number;
-  };
-}
-
-/**
- * Configuration for Redis persistence adapter
- */
-export interface RedisAdapterConfig {
-  /** Redis host */
-  readonly host: string;
-
-  /** Redis port */
-  readonly port: number;
-
-  /** Redis password */
-  readonly password?: string;
-
-  /** Redis database number */
-  readonly database?: number;
-
-  /** Key prefix for events */
-  readonly keyPrefix?: string;
-
-  /** Time to live in seconds */
-  readonly ttl?: number;
-
-  /** Redis cluster configuration */
-  readonly cluster?: {
-    /** Enable cluster mode */
-    readonly enabled: boolean;
-    /** Cluster nodes */
-    readonly nodes: readonly {
-      readonly host: string;
-      readonly port: number;
-    }[];
-    /** Cluster options */
-    readonly options?: {
-      readonly enableReadyCheck?: boolean;
-      readonly redisOptions?: Record<string, unknown>;
-      readonly maxRetriesPerRequest?: number;
-    };
-  };
-
-  /** Enable compression */
-  readonly compression?: boolean;
-
-  /** Serialization format */
-  readonly serialization?: 'json' | 'msgpack' | 'protobuf';
-
-  /** Connection pool configuration */
-  readonly pool?: {
-    /** Minimum connections */
-    readonly min: number;
-    /** Maximum connections */
-    readonly max: number;
-    /** Connection timeout in ms */
-    readonly acquireTimeoutMs: number;
-    /** Idle timeout in ms */
-    readonly idleTimeoutMs: number;
-  };
-}
-
-/**
- * Configuration for database persistence adapters
- */
-export interface DatabaseAdapterConfig {
-  /** Database type */
-  readonly type: 'postgresql' | 'mysql' | 'mongodb' | 'sqlite' | 'mariadb';
-
-  /** Database connection string */
-  readonly connectionString: string;
-
-  /** Table name for SQL databases */
-  readonly tableName?: string;
-
-  /** Collection name for MongoDB */
-  readonly collectionName?: string;
-
-  /** Connection pool size */
-  readonly poolSize?: number;
-
-  /** Connection timeout in milliseconds */
-  readonly connectionTimeout?: number;
-
-  /** Query timeout in milliseconds */
-  readonly queryTimeout?: number;
-
-  /** Migration configuration */
-  readonly migrations?: {
-    /** Enable automatic migrations */
-    readonly enabled: boolean;
-    /** Migration files path */
-    readonly path?: string;
-    /** Migration table name */
-    readonly tableName?: string;
-  };
-
-  /** Database indexes */
-  readonly indexes?: readonly {
-    /** Index fields */
-    readonly fields: readonly string[];
-    /** Unique constraint */
-    readonly unique?: boolean;
-    /** Sparse index */
-    readonly sparse?: boolean;
-    /** Index name */
-    readonly name?: string;
-    /** Partial index condition */
-    readonly condition?: string;
-  }[];
-
-  /** SSL configuration */
-  readonly ssl?: {
-    /** Enable SSL */
-    readonly enabled: boolean;
-    /** Reject unauthorized certificates */
-    readonly rejectUnauthorized?: boolean;
-    /** Certificate authority */
-    readonly ca?: string;
-    /** Client certificate */
-    readonly cert?: string;
-    /** Client key */
-    readonly key?: string;
-  };
-
-  /** Query optimization */
-  readonly optimization?: {
-    /** Enable query caching */
-    readonly enableQueryCache: boolean;
-    /** Cache TTL in seconds */
-    readonly cacheTtlSeconds: number;
-    /** Batch size for bulk operations */
-    readonly batchSize: number;
-  };
-}
-
-/**
- * Configuration for file system persistence adapter
- */
-export interface FileSystemAdapterConfig {
-  /** Base directory path for event storage */
-  readonly basePath: string;
-
-  /** File format for event storage */
-  readonly fileFormat?: 'json' | 'jsonl' | 'binary' | 'avro' | 'parquet';
-
-  /** Compression algorithm */
-  readonly compression?: 'gzip' | 'brotli' | 'lz4' | 'snappy' | 'none';
-
-  /** File partitioning strategy */
-  readonly partitioning?: {
-    /** Partitioning strategy */
-    readonly strategy: 'date' | 'size' | 'count' | 'hash' | 'none';
-    /** Maximum file size in bytes */
-    readonly maxFileSize?: number;
-    /** Maximum events per file */
-    readonly maxEventCount?: number;
-    /** Date format for date-based partitioning */
-    readonly dateFormat?: string;
-    /** Hash field for hash-based partitioning */
-    readonly hashField?: string;
-    /** Number of partitions for hash-based partitioning */
-    readonly partitionCount?: number;
-  };
-
-  /** Backup configuration */
-  readonly backup?: {
-    /** Enable backups */
-    readonly enabled: boolean;
-    /** Backup retention in days */
-    readonly retention: number;
-    /** Compress backup files */
-    readonly compression: boolean;
-    /** Backup destination path */
-    readonly destinationPath?: string;
-    /** Backup schedule (cron expression) */
-    readonly schedule?: string;
-  };
-
-  /** File system permissions */
-  readonly permissions?: {
-    /** File permissions (octal) */
-    readonly fileMode: string;
-    /** Directory permissions (octal) */
-    readonly dirMode: string;
-    /** Owner user */
-    readonly owner?: string;
-    /** Owner group */
-    readonly group?: string;
-  };
-
-  /** Performance tuning */
-  readonly performance?: {
-    /** Write buffer size */
-    readonly writeBufferSize: number;
-    /** Use write-ahead logging */
-    readonly useWAL: boolean;
-    /** Sync to disk frequency */
-    readonly syncIntervalMs: number;
-  };
-}
-
-// =============================================================================
-// CLOUD STORAGE ADAPTER CONFIGURATIONS
-// =============================================================================
-
-/**
- * Configuration for AWS S3 persistence adapter
- */
-export interface S3AdapterConfig {
-  /** S3 bucket name */
-  readonly bucketName: string;
-
-  /** AWS region */
-  readonly region: string;
-
-  /** AWS access key ID */
-  readonly accessKeyId?: string;
-
-  /** AWS secret access key */
-  readonly secretAccessKey?: string;
-
-  /** S3 key prefix */
-  readonly prefix?: string;
-
-  /** S3 storage class */
-  readonly storageClass?: 'STANDARD' | 'REDUCED_REDUNDANCY' | 'GLACIER' | 'GLACIER_IR' | 'DEEP_ARCHIVE';
-
-  /** Server-side encryption configuration */
-  readonly encryption?: {
-    /** Enable encryption */
-    readonly enabled: boolean;
-    /** KMS key ID for encryption */
-    readonly kmsKeyId?: string;
-    /** Encryption algorithm */
-    readonly algorithm?: 'AES256' | 'aws:kms';
-  };
-
-  /** Multipart upload configuration */
-  readonly multipartUpload?: {
-    /** Enable multipart uploads */
-    readonly enabled: boolean;
-    /** Part size in bytes */
-    readonly partSize: number;
-    /** Maximum concurrent parts */
-    readonly maxConcurrentParts: number;
-  };
-
-  /** S3 transfer acceleration */
-  readonly transferAcceleration?: boolean;
-
-  /** Versioning configuration */
-  readonly versioning?: {
-    /** Enable object versioning */
-    readonly enabled: boolean;
-    /** Keep version count */
-    readonly maxVersions?: number;
-  };
-}
-
-/**
- * Configuration for Azure Blob Storage persistence adapter
- */
-export interface AzureBlobAdapterConfig {
-  /** Azure storage connection string */
-  readonly connectionString: string;
-
-  /** Blob container name */
-  readonly containerName: string;
-
-  /** Blob name prefix */
-  readonly prefix?: string;
-
-  /** Access tier for cost optimization */
-  readonly tier?: 'Hot' | 'Cool' | 'Archive';
-
-  /** Authentication configuration */
-  readonly auth?: {
-    /** Use managed identity */
-    readonly useManagedIdentity?: boolean;
-    /** Account name for key-based auth */
-    readonly accountName?: string;
-    /** Account key for key-based auth */
-    readonly accountKey?: string;
-    /** SAS token */
-    readonly sasToken?: string;
-  };
-
-  /** Encryption configuration */
-  readonly encryption?: {
-    /** Enable client-side encryption */
-    readonly enabled: boolean;
-    /** Encryption key */
-    readonly key?: string;
-    /** Key vault URL */
-    readonly keyVaultUrl?: string;
-  };
-
-  /** Redundancy configuration */
-  readonly redundancy?: 'LRS' | 'ZRS' | 'GRS' | 'RA-GRS' | 'GZRS' | 'RA-GZRS';
-}
-
-/**
- * Configuration for Google Cloud Storage persistence adapter
- */
-export interface GCSAdapterConfig {
-  /** GCS bucket name */
-  readonly bucketName: string;
-
-  /** Service account key file path */
-  readonly keyFilename?: string;
-
-  /** Google Cloud project ID */
-  readonly projectId?: string;
-
-  /** Object name prefix */
-  readonly prefix?: string;
-
-  /** Storage class for cost optimization */
-  readonly storageClass?: 'STANDARD' | 'NEARLINE' | 'COLDLINE' | 'ARCHIVE';
-
-  /** Authentication configuration */
-  readonly auth?: {
-    /** Service account email */
-    readonly clientEmail?: string;
-    /** Private key */
-    readonly privateKey?: string;
-    /** Use Application Default Credentials */
-    readonly useADC?: boolean;
-  };
-
-  /** Encryption configuration */
-  readonly encryption?: {
-    /** Enable customer-supplied encryption */
-    readonly enabled: boolean;
-    /** Encryption key */
-    readonly key?: string;
-    /** KMS key name */
-    readonly kmsKeyName?: string;
-  };
-
-  /** Lifecycle management */
-  readonly lifecycle?: {
-    /** Enable lifecycle rules */
-    readonly enabled: boolean;
-    /** Rules for object transitions */
-    readonly rules: readonly {
-      /** Condition for rule */
-      readonly condition: {
-        /** Age in days */
-        readonly age?: number;
-        /** Created before date */
-        readonly createdBefore?: string;
-        /** Matches storage class */
-        readonly matchesStorageClass?: readonly string[];
-      };
-      /** Action to take */
-      readonly action: {
-        /** Action type */
-        readonly type: 'Delete' | 'SetStorageClass';
-        /** Target storage class */
-        readonly storageClass?: string;
-      };
-    }[];
   };
 }

@@ -28,15 +28,7 @@ export * from './persistence.interfaces';
 // =============================================================================
 
 // Export specific interfaces to avoid conflicts
-export {
-  HandlerDependency,
-  DependencyType,
-  DependencyStrength,
-  CircularDependency,
-  DependencyAnalysisResult,
-  ExecutionPlan,
-  ExecutionPhase,
-} from './discovery.interfaces';
+export { HandlerDiscoveryResult, CircularDependency } from './discovery.interfaces';
 
 // =============================================================================
 // DEAD LETTER QUEUE INTERFACES - Failed event handling
@@ -76,4 +68,4 @@ export const EVENT_HANDLER_OPTIONS = Symbol('EVENT_HANDLER_OPTIONS');
 // Re-export key enums that are commonly used
 export { EventStatus, EventPriority } from './core.interfaces';
 export { CircuitBreakerState, IsolationStrategy, TimeoutStrategy, ResourceIsolation } from './handler.interfaces';
-export { BackpressureStrategy, FaultToleranceMode, IsolationLevel, CacheStrategy, ShardingStrategy, IndexingStrategy } from './configuration.interfaces';
+export { BackpressureStrategy } from './configuration.interfaces';

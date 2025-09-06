@@ -60,11 +60,6 @@ export interface ExecutionConfig {
     readonly maxConcurrency: number;
     readonly queueSize: number;
   };
-  readonly rateLimit: {
-    readonly enabled: boolean;
-    readonly maxPerSecond: number;
-    readonly burstSize: number;
-  };
 }
 
 /**
@@ -114,7 +109,6 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
   private readonly executionStats = new Map<string, HandlerExecutionStats>();
   private readonly activeExecutions = new Map<string, EnhancedExecutionContext>();
   private readonly circuitBreakers = new Map<string, CircuitBreakerMetrics>();
-  private readonly rateLimiters = new Map<string, { tokens: number; lastRefill: number }>();
 
   private readonly executionResults$ = new Subject<DetailedExecutionResult>();
   private readonly stats$ = new BehaviorSubject<Record<string, HandlerExecutionStats>>({});
@@ -145,11 +139,6 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
         enabled: true,
         maxConcurrency: 10,
         queueSize: 100,
-      },
-      rateLimit: {
-        enabled: false,
-        maxPerSecond: 100,
-        burstSize: 10,
       },
       // Additional handler execution options could be added here
     };
@@ -202,11 +191,6 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
     // Check circuit breaker
     if (this.isCircuitOpen(handlerId)) {
       throw new Error(`Circuit breaker is open for handler ${handlerId}`);
-    }
-
-    // Check rate limiting
-    if (this.config.rateLimit.enabled && !this.checkRateLimit(handlerId)) {
-      throw new Error(`Rate limit exceeded for handler ${handlerId}`);
     }
 
     const context = this.createExecutionContext(handler, event, executionId, options);
@@ -276,7 +260,6 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
   resetAllStats(): void {
     this.executionStats.clear();
     this.circuitBreakers.clear();
-    this.rateLimiters.clear();
     this.updateStatsObservable();
     this.logger.log('All handler execution statistics reset');
   }
@@ -574,38 +557,6 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
     return cb?.state === CircuitBreakerState.OPEN && Date.now() < (cb.nextAttemptTime || 0);
   }
 
-  private checkRateLimit(handlerId: string): boolean {
-    if (!this.config.rateLimit.enabled) return true;
-
-    const now = Date.now();
-    let limiter = this.rateLimiters.get(handlerId);
-
-    if (!limiter) {
-      limiter = { tokens: this.config.rateLimit.burstSize, lastRefill: now };
-      this.rateLimiters.set(handlerId, limiter);
-    }
-
-    // Refill tokens
-    const timePassed = now - limiter.lastRefill;
-    const tokensToAdd = Math.floor(timePassed / 1000) * (this.config.rateLimit.maxPerSecond ?? 10);
-    const updatedLimiter = {
-      tokens: Math.min(this.config.rateLimit.burstSize ?? 10, limiter.tokens + tokensToAdd),
-      lastRefill: now,
-    };
-
-    this.rateLimiters.set(handlerId, updatedLimiter);
-
-    if (updatedLimiter.tokens > 0) {
-      this.rateLimiters.set(handlerId, {
-        ...updatedLimiter,
-        tokens: updatedLimiter.tokens - 1,
-      });
-      return true;
-    }
-
-    return false;
-  }
-
   // TODO: Implement exponential backoff and jitter for retries
   private shouldRetry(error: Error, attempt: number): boolean {
     if (attempt >= this.config.maxRetries) return false;
@@ -627,7 +578,6 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
   private startPeriodicCleanup(): void {
     this.cleanupInterval = setInterval(() => {
       this.cleanupOldStats();
-      this.cleanupRateLimiters();
     }, 300000); // Every 5 minutes
   }
 
@@ -662,22 +612,6 @@ export class HandlerExecutionService implements OnModuleInit, OnModuleDestroy {
     if (cleanedCount > 0) {
       this.logger.debug(`Cleaned up ${cleanedCount} old handler statistics`);
       this.updateStatsObservable();
-    }
-  }
-
-  private cleanupRateLimiters(): void {
-    const cutoffTime = Date.now() - 300000; // 5 minutes ago
-    let cleanedCount = 0;
-
-    for (const [handlerId, limiter] of this.rateLimiters) {
-      if (limiter.lastRefill < cutoffTime) {
-        this.rateLimiters.delete(handlerId);
-        cleanedCount++;
-      }
-    }
-
-    if (cleanedCount > 0) {
-      this.logger.debug(`Cleaned up ${cleanedCount} old rate limiters`);
     }
   }
 

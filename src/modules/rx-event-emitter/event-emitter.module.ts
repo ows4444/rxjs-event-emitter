@@ -125,24 +125,20 @@ export class EventEmitterModule implements OnModuleInit {
       const handlers = this.eventEmitter.getAllHandlers();
       this.logger.log(`Event handlers discovered: ${handlers.length} handlers found`);
 
-      // 2. Analyze handler dependencies
-      this.logger.debug('Step 2: Analyzing handler dependencies...');
-      this.dependencyAnalyzer.registerHandlers(handlers);
+      // 2. Register handlers with dependency analyzer
+      this.logger.debug('Step 2: Registering handlers with dependency analyzer...');
+      handlers.forEach((handler) => {
+        this.dependencyAnalyzer.registerHandler(handler.metadata.eventName, handler);
+      });
 
-      const analysisResult = this.dependencyAnalyzer.getCurrentAnalysisResult();
-      if (analysisResult.circularDependencies.length > 0) {
-        this.logger.warn(`Found ${analysisResult.circularDependencies.length} circular dependencies`);
-        analysisResult.circularDependencies.forEach((cd) => {
-          this.logger.warn(`  Circular dependency: ${cd.cycle.join(' -> ')}`);
-        });
+      const analysisResult = this.dependencyAnalyzer.getAnalysisResult();
+      this.logger.log(`Handler analysis completed: ${analysisResult.totalHandlers} handlers registered`);
+
+      // Check for circular dependencies (basic)
+      const circularDependencies = this.dependencyAnalyzer.checkCircularDependencies();
+      if (circularDependencies.length > 0) {
+        this.logger.warn(`Found ${circularDependencies.length} circular dependencies`);
       }
-
-      // 3. Generate execution plan
-      const handlerNames = handlers.map((h) => h.metadata.eventName);
-      const executionPlan = this.dependencyAnalyzer.generateExecutionPlan(handlerNames);
-      this.logger.log(
-        `Execution plan generated: ${String(executionPlan.totalPhases)} phases, ${String(executionPlan.parallelizationOpportunities)} parallel opportunities`,
-      );
 
       // 4. Log system health
       const systemMetrics = this.metricsService.getCurrentSystemMetrics();

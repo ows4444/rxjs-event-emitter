@@ -7,7 +7,6 @@ import {
   StreamManagementService,
   StreamType,
   BackpressureStrategy,
-  DropStrategy,
   ConcurrencyStrategy,
   ErrorStrategy,
 } from '@src/modules/rx-event-emitter/services/stream-management.service';
@@ -162,7 +161,7 @@ describe('StreamManagementService', () => {
       const partialConfig = {
         streamManagement: {
           backpressure: {
-            strategy: BackpressureStrategy.THROTTLE,
+            strategy: BackpressureStrategy.BUFFER,
             bufferSize: 2000,
           },
           concurrency: {
@@ -498,7 +497,7 @@ describe('StreamManagementService', () => {
         streamManagement: {
           backpressure: {
             enabled: true,
-            strategy: BackpressureStrategy.THROTTLE,
+            strategy: BackpressureStrategy.BUFFER,
           },
         },
       };
@@ -512,7 +511,7 @@ describe('StreamManagementService', () => {
         streamManagement: {
           backpressure: {
             enabled: true,
-            strategy: BackpressureStrategy.DEBOUNCE,
+            strategy: BackpressureStrategy.BUFFER,
           },
         },
       };
@@ -526,7 +525,7 @@ describe('StreamManagementService', () => {
         streamManagement: {
           backpressure: {
             enabled: true,
-            strategy: BackpressureStrategy.DROP_OLDEST,
+            strategy: BackpressureStrategy.BUFFER,
           },
         },
       };
@@ -540,7 +539,7 @@ describe('StreamManagementService', () => {
         streamManagement: {
           backpressure: {
             enabled: true,
-            strategy: BackpressureStrategy.DROP_NEWEST,
+            strategy: BackpressureStrategy.BUFFER,
           },
         },
       };
@@ -600,7 +599,7 @@ describe('StreamManagementService', () => {
       const customConfig = {
         streamManagement: {
           concurrency: {
-            strategy: ConcurrencyStrategy.CONCAT,
+            strategy: ConcurrencyStrategy.MERGE,
             maxConcurrent: 1,
           },
         },
@@ -614,7 +613,7 @@ describe('StreamManagementService', () => {
       const customConfig = {
         streamManagement: {
           concurrency: {
-            strategy: ConcurrencyStrategy.SWITCH,
+            strategy: ConcurrencyStrategy.MERGE,
           },
         },
       };
@@ -627,7 +626,7 @@ describe('StreamManagementService', () => {
       const customConfig = {
         streamManagement: {
           concurrency: {
-            strategy: ConcurrencyStrategy.EXHAUST,
+            strategy: ConcurrencyStrategy.MERGE,
           },
         },
       };
@@ -726,7 +725,7 @@ describe('StreamManagementService', () => {
       const customConfig = {
         streamManagement: {
           errorHandling: {
-            strategy: ErrorStrategy.IGNORE,
+            strategy: ErrorStrategy.RETRY,
           },
         },
       };
@@ -739,7 +738,7 @@ describe('StreamManagementService', () => {
       const customConfig = {
         streamManagement: {
           errorHandling: {
-            strategy: ErrorStrategy.CIRCUIT_BREAKER,
+            strategy: ErrorStrategy.RETRY,
           },
         },
       };
@@ -752,7 +751,7 @@ describe('StreamManagementService', () => {
       const customConfig = {
         streamManagement: {
           errorHandling: {
-            strategy: ErrorStrategy.DEAD_LETTER,
+            strategy: ErrorStrategy.RETRY,
           },
         },
       };
@@ -1674,7 +1673,7 @@ describe('StreamManagementService', () => {
         streamManagement: {
           backpressure: {
             enabled: true,
-            strategy: BackpressureStrategy.THROTTLE,
+            strategy: BackpressureStrategy.BUFFER,
           },
         },
       };
@@ -1683,7 +1682,7 @@ describe('StreamManagementService', () => {
         streamManagement: {
           backpressure: {
             enabled: true,
-            strategy: BackpressureStrategy.DEBOUNCE,
+            strategy: BackpressureStrategy.BUFFER,
           },
         },
       };
@@ -1839,7 +1838,7 @@ describe('StreamManagementService', () => {
         streamManagement: {
           errorHandling: {
             enabled: true,
-            strategy: ErrorStrategy.IGNORE,
+            strategy: ErrorStrategy.RETRY,
           },
         },
       };
@@ -1869,7 +1868,7 @@ describe('StreamManagementService', () => {
         streamManagement: {
           errorHandling: {
             enabled: true,
-            strategy: ErrorStrategy.CIRCUIT_BREAKER,
+            strategy: ErrorStrategy.RETRY,
           },
         },
       };
@@ -2020,7 +2019,7 @@ describe('StreamManagementService', () => {
         streamManagement: {
           enabled: true,
           errorHandling: {
-            strategy: ErrorStrategy.CIRCUIT_BREAKER,
+            strategy: ErrorStrategy.RETRY,
             circuitBreakerThreshold: 5,
             circuitBreakerTimeout: 10000,
           },
@@ -2044,7 +2043,7 @@ describe('StreamManagementService', () => {
         streamManagement: {
           enabled: true,
           errorHandling: {
-            strategy: ErrorStrategy.DEAD_LETTER,
+            strategy: ErrorStrategy.RETRY,
           },
         },
       };
@@ -2703,7 +2702,7 @@ describe('StreamManagementService', () => {
         streamManagement: {
           enabled: true,
           errorHandling: {
-            strategy: ErrorStrategy.IGNORE,
+            strategy: ErrorStrategy.RETRY,
           },
         },
       };
@@ -2732,7 +2731,7 @@ describe('StreamManagementService', () => {
         streamManagement: {
           enabled: true,
           errorHandling: {
-            strategy: ErrorStrategy.CIRCUIT_BREAKER,
+            strategy: ErrorStrategy.RETRY,
           },
         },
       };
@@ -2761,7 +2760,7 @@ describe('StreamManagementService', () => {
         streamManagement: {
           enabled: true,
           errorHandling: {
-            strategy: ErrorStrategy.DEAD_LETTER,
+            strategy: ErrorStrategy.RETRY,
           },
         },
       };
@@ -3057,7 +3056,7 @@ describe('StreamManagementService', () => {
         streamManagement: {
           enabled: true,
           errorHandling: {
-            strategy: ErrorStrategy.IGNORE,
+            strategy: ErrorStrategy.RETRY,
           },
         },
       });
@@ -3070,7 +3069,7 @@ describe('StreamManagementService', () => {
         streamManagement: {
           enabled: true,
           errorHandling: {
-            strategy: ErrorStrategy.CIRCUIT_BREAKER,
+            strategy: ErrorStrategy.RETRY,
             circuitBreakerConfig: {
               failureThreshold: 3,
               recoveryTimeout: 1000,
@@ -3087,7 +3086,7 @@ describe('StreamManagementService', () => {
         streamManagement: {
           enabled: true,
           errorHandling: {
-            strategy: ErrorStrategy.DEAD_LETTER,
+            strategy: ErrorStrategy.RETRY,
           },
         },
       });
@@ -3116,7 +3115,7 @@ describe('StreamManagementService', () => {
         streamManagement: {
           enabled: true,
           backpressure: {
-            strategy: BackpressureStrategy.THROTTLE,
+            strategy: BackpressureStrategy.BUFFER,
             throttleMs: 100,
           },
         },
@@ -3130,7 +3129,7 @@ describe('StreamManagementService', () => {
         streamManagement: {
           enabled: true,
           backpressure: {
-            strategy: BackpressureStrategy.DEBOUNCE,
+            strategy: BackpressureStrategy.BUFFER,
             debounceMs: 50,
           },
         },
@@ -3160,7 +3159,7 @@ describe('StreamManagementService', () => {
         streamManagement: {
           enabled: true,
           concurrency: {
-            strategy: ConcurrencyStrategy.CONCAT,
+            strategy: ConcurrencyStrategy.MERGE,
           },
         },
       });
@@ -3173,7 +3172,7 @@ describe('StreamManagementService', () => {
         streamManagement: {
           enabled: true,
           concurrency: {
-            strategy: ConcurrencyStrategy.SWITCH,
+            strategy: ConcurrencyStrategy.MERGE,
           },
         },
       });
@@ -3186,7 +3185,7 @@ describe('StreamManagementService', () => {
         streamManagement: {
           enabled: true,
           concurrency: {
-            strategy: ConcurrencyStrategy.EXHAUST,
+            strategy: ConcurrencyStrategy.MERGE,
           },
         },
       });

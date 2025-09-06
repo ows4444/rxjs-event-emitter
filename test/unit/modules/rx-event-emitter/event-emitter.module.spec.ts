@@ -290,7 +290,6 @@ describe('EventEmitterModule', () => {
             cycle: ['HandlerA', 'HandlerB', 'HandlerA'],
             eventNames: ['event.a', 'event.b'],
             severity: 'warning',
-            autoFixable: false,
             metadata: {
               length: 2,
               detectionMethod: 'dfs',
@@ -483,7 +482,7 @@ describe('EventEmitterModule', () => {
         },
         streamManagement: {
           enabled: true,
-          backpressureStrategy: BackpressureStrategy.DROP_OLDEST,
+          backpressureStrategy: BackpressureStrategy.BUFFER,
         },
       };
 
@@ -733,7 +732,6 @@ describe('EventEmitterModule', () => {
             cycle: ['HandlerA', 'HandlerB', 'HandlerC', 'HandlerA'],
             eventNames: ['event.a', 'event.b', 'event.c'],
             severity: 'warning',
-            autoFixable: false,
             metadata: {
               length: 3,
               detectionMethod: 'dfs',
@@ -745,7 +743,6 @@ describe('EventEmitterModule', () => {
             cycle: ['HandlerX', 'HandlerY', 'HandlerX'],
             eventNames: ['event.x', 'event.y'],
             severity: 'error',
-            autoFixable: false,
             metadata: {
               length: 2,
               detectionMethod: 'dfs',

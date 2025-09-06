@@ -211,7 +211,7 @@ export interface HandlerOptions {
   /** Pool assignment */
   readonly pool?: string;
   /** Isolation level */
-  readonly isolation?: 'shared' | 'isolated' | 'tenant';
+  readonly isolation?: 'shared' | 'isolated';
   /** Circuit breaker configuration */
   readonly circuitBreaker?: {
     readonly enabled: boolean;

@@ -107,7 +107,7 @@ describe('InMemoryPersistenceAdapter', () => {
     expect(stats.unprocessedEvents).toBe(1);
     expect(stats.processedEvents).toBe(0);
     expect(stats.storageSize).toBeGreaterThan(0);
-    expect(stats.avgEventSize).toBeGreaterThan(0);
+    expect(stats.averageEventSize).toBeGreaterThan(0);
   });
 
   it('should perform health check', () => {
@@ -214,6 +214,6 @@ describe('InMemoryPersistenceAdapter', () => {
     expect(stats.unprocessedEvents).toBe(2);
     expect(stats.oldestEvent).toEqual(new Date(1000));
     expect(stats.newestEvent).toEqual(new Date(3000));
-    expect(stats.avgEventSize).toBeGreaterThan(0);
+    expect(stats.averageEventSize).toBeGreaterThan(0);
   });
 });

@@ -245,7 +245,6 @@ export interface HandlerPoolConfig {
 export enum IsolationStrategy {
   SHARED = 'shared',
   ISOLATED = 'isolated',
-  TENANT_ISOLATED = 'tenant_isolated',
 }
 
 /**

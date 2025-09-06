@@ -46,18 +46,6 @@ export interface MetricsConfig {
   };
 }
 
-/**
- * @deprecated - Use SystemMetrics instead
- */
-export interface EventMetrics {
-  totalEvents: number;
-  processedEvents: number;
-  failedEvents: number;
-  eventsByName: Map<string, number>;
-  averageProcessingTime: number;
-  lastProcessedAt?: Date;
-}
-
 @Injectable()
 export class MetricsService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MetricsService.name);
@@ -85,16 +73,6 @@ export class MetricsService implements OnModuleInit, OnModuleDestroy {
   private healthCheckTimer?: NodeJS.Timeout;
 
   private readonly config: Required<MetricsConfig>;
-
-  // Legacy metrics for backward compatibility
-  private readonly legacyMetrics: EventMetrics = {
-    totalEvents: 0,
-    processedEvents: 0,
-    failedEvents: 0,
-    eventsByName: new Map(),
-    averageProcessingTime: 0,
-  };
-  private readonly legacyProcessingTimes: number[] = [];
 
   constructor(
     @Optional()
@@ -171,11 +149,6 @@ export class MetricsService implements OnModuleInit, OnModuleDestroy {
     // Update system metrics to reflect event stats changes
     this.syncSystemMetrics();
 
-    // Legacy compatibility
-    this.legacyMetrics.totalEvents++;
-    const count = this.legacyMetrics.eventsByName.get(event.metadata.name) || 0;
-    this.legacyMetrics.eventsByName.set(event.metadata.name, count + 1);
-
     this.logger.debug(`Event emitted: ${event.metadata.name} (Total: ${updated.totalEmitted})`);
   }
 
@@ -205,15 +178,6 @@ export class MetricsService implements OnModuleInit, OnModuleDestroy {
     // Update system metrics to reflect event stats changes
     this.syncSystemMetrics();
 
-    // Legacy compatibility
-    this.legacyMetrics.processedEvents++;
-    this.legacyMetrics.lastProcessedAt = new Date();
-    this.legacyProcessingTimes.push(processingTimeMs);
-    if (this.legacyProcessingTimes.length > 1000) {
-      this.legacyProcessingTimes.shift();
-    }
-    this.legacyMetrics.averageProcessingTime = this.legacyProcessingTimes.reduce((sum, time) => sum + time, 0) / this.legacyProcessingTimes.length;
-
     this.logger.debug(`Event processed: ${event.metadata.name} in ${processingTimeMs}ms`);
   }
 
@@ -238,9 +202,6 @@ export class MetricsService implements OnModuleInit, OnModuleDestroy {
 
     // Update system metrics to reflect event stats changes
     this.syncSystemMetrics();
-
-    // Legacy compatibility
-    this.legacyMetrics.failedEvents++;
 
     this.logger.warn(`Event failed: ${event.metadata.name} (${error.message}). Total failures: ${updated.totalFailed}`);
   }
@@ -297,12 +258,6 @@ export class MetricsService implements OnModuleInit, OnModuleDestroy {
   }
 
   // Legacy method for backward compatibility
-  getMetrics(): EventMetrics {
-    return {
-      ...this.legacyMetrics,
-      eventsByName: new Map(this.legacyMetrics.eventsByName),
-    };
-  }
 
   reset(): void {
     // Reset modern metrics
@@ -319,15 +274,6 @@ export class MetricsService implements OnModuleInit, OnModuleDestroy {
     this.errorTimestamps.length = 0;
     this.handlerExecutions.clear();
     this.handlerErrors.clear();
-
-    // Reset legacy metrics
-    this.legacyMetrics.totalEvents = 0;
-    this.legacyMetrics.processedEvents = 0;
-    this.legacyMetrics.failedEvents = 0;
-    this.legacyMetrics.eventsByName.clear();
-    this.legacyMetrics.averageProcessingTime = 0;
-    this.legacyMetrics.lastProcessedAt = undefined;
-    this.legacyProcessingTimes.length = 0;
 
     this.logger.log('All metrics reset');
   }
